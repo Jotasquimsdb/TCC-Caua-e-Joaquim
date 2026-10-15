@@ -1,0 +1,3417 @@
+﻿
+var tipoDimensao = {
+    // mapa "nome -> id"
+    variavel: 0,
+    classificacao: 1,
+    periodo: 2,
+    territorio: 3,
+    nivel: 3,
+    visao: 4,
+    // mapa "sigla -> nome"
+    "V": "variavel",
+    "C": "classificacao",
+    "P": "periodo",
+    "N": "territorio",
+    "G": "territorio",
+    // mapa "id -> nome"
+    0: "variavel",
+    1: "classificacao",
+    2: "periodo",
+    3: "territorio",
+    4: "territorio"
+};
+
+var dadoVazio = {
+    V: "-"
+}
+
+var limiarTabelaGrande = 20000;
+
+// FAZER DEPOIS COMO APLICATIVO *********************
+var EditorTabela = $.sidra.criarClasse(EditorAplicativo, {
+    parametrosJanela: {
+        "collapsible": false,
+        "resize": "auto",
+        "buttons": ["close"]
+    },
+    //
+    inicializar: function (container) {
+        this.id = "tabela";
+        this.modo = "tabela";
+        this.base("inicializar", container);
+    }
+});
+
+(function (globals, $, undef) {
+    "use strict";
+
+    var CAMPO_PLUGIN = 'pluginVisao';
+    var BASE_TAB = 400;
+    var tabIndex = BASE_TAB;
+    var CAMPO_REFERENCIA = '__r';
+    var estadoEditor = { selecionar: 0, ordenar: 1 };
+    var tipoDado = { vazio: -2, raiz: -1, tabela: 0, rotulo: 1, celula: 2, instancia: 3 };
+    var tipoPosicao = { cabecalho: 0, coluna: 1, linha: 2 };
+    //
+    var ultimoLayout = null;
+    //
+    // cria um mapa de indentações (faz essa repetição apenas na inicialização)
+    var mapaIndentacao = [""];
+    var indentacaoPadrao = "&nbsp;&nbsp;&nbsp;";
+    for (var i = 1; i < 10; i++)
+        mapaIndentacao[i] = mapaIndentacao[i - 1] + indentacaoPadrao;
+
+    // define os tipos de gráficos disponíveis e as propriedades de cada um
+    var estilosGraficos = {
+        "normal": "Normal",
+        "pilha": "Empilhado",
+        "estender": "Estendido"
+    }
+    var tiposGraficos = [
+        {
+            nome: "Colunas verticais",
+            legenda: true,
+            ticks: true,
+            area: false,
+            angulo: true,
+            estilos: ["normal", "pilha"],
+            graph: "multiBarChart"
+        },
+        {
+            nome: "Barras horizontais",
+            legenda: true,
+            ticks: false,
+            area: false,
+            angulo: false,
+            estilos: ["normal", "pilha"],
+            graph: "multiBarHorizontalChart"
+        },
+        {
+            nome: "Linhas",
+            legenda: true,
+            ticks: true,
+            area: true,
+            angulo: true,
+            estilos: ["normal", "pilha", "estender"],
+            graph: "stackedAreaChart"   // versão adaptada, que inclui o modo não-empilhado
+        },
+        {
+            nome: 'Setores ("pizza")',
+            legenda: false,     // existe legenda, mas que ela não é selecionável
+            ticks: false,
+            area: false,
+            angulo: false,
+            estilos: [],
+            graph: "pieChart"
+        }
+    ];
+
+    var menuGrafico = function () {
+        return $("<div class='float-grafico'></div>")
+            .append("<div class='btn btn-default'><span class='glyphicon glyphicon-floppy-disk'></span></div>");
+    }
+
+    var preencherDropdown = function (elemento, lista, campo, selecionado) {
+        // gera a lista de opções a partir dos parâmetros do usuário
+        var opcoes = $.map(lista, function (el, i) {
+            return $("<option>" + el[campo] + "</option>").prop("selected", selecionado === i);
+        });
+        // seleciona o dropdown e atualiza seu html
+        var dropdown = (elemento.is("select") ? elemento : elemento.find("select"));
+        dropdown.empty().append(opcoes);
+        // encadeamento de objeto
+        return elemento;
+    }
+
+    var criarDropdown = function (texto, id, lista, campo) {
+        var dropdown = $('<div class="form-group"></div>').append(
+            $("<label>" + texto + "</label>"),
+            $("<select>", {
+                "id": id,
+                "tabindex": tabIndex++,
+                "class": "form-control"
+            }));
+        // se a lista foi informada, chamar o preenchimento
+        if (lista)
+            preencherDropdown(dropdown, lista, campo);
+        // retornar o elemento
+        return dropdown;
+    }
+
+    /*
+    var criarDropdownConfiguracoes = function () {
+        return $("<div class='btn-group'></div>").append(
+            // botão de toggle
+            $('<button type="button" id="graph-toggle-ctrl" class="btn btn-default dropdown-toggle collapsed" data-toggle="dropdown">'
+                + '<span class="glyphicon glyphicon-cog"></span>'
+                + '</button>'),
+            // menu
+            $("<div id='graph-ctrl-wrapper' class='dropdown-menu'></div>").append(
+                $("<form class='form-horizontal'></form>").append(
+                    // grupo 1: checkbox para exibir/ocultar legendas
+                    $("<div class='form-group grupo-legenda'></div>").append(
+                        $("<div class='col-sm-12'><label class='checkbox-inline'><input type='checkbox' checked id='graph-estilo-legenda' tabindex='" + (tabIndex++) + "' />Exibir legenda</label></div>")
+                        ),
+                    $("<hr class='grupo-legenda'/>"),
+                    // grupo 2: seletor de estilo e checkbox de visualizar área
+                    $("<div class='form-group grupo-estilo-area'></div>").append(
+                        $("<label id='graph-estilo' class='col-sm-12 grupo-estilo-area'>Estilo de exibição:</label>"),
+                        $("<div class='col-sm-12 grupo-estilo'><select id='graph-estilo-tipo' class='form-control' tabindex='" + (tabIndex++) + "'></select></div>"),
+                        $("<div class='col-sm-12 grupo-area'><label class='checkbox-inline'><input type='checkbox' id='graph-estilo-area' tabindex='" + (tabIndex++) + "'/>Visualizar área</label></div>")
+                    ),
+                    $("<hr class='grupo-estilo-area'/>"),  // a visibilidade depende do "grupo-area" também, mas como não existe opção de área sem opção de estilos, basta só esse
+                    // grupo 3: campo de edição de ângulo
+                    $("<div class='form-group grupo-angulo'></div>").append(
+                        $("<label class='col-sm-12'>Ângulo do rótulo (graus):</label>"),
+                        $("<div class='col-sm-12'><input type='text' id='graph-estilo-angulo' data-param='angulo' class='form-control' value='20' tabindex='" + (tabIndex++) + "'/></div>")
+                    ),
+                    $("<hr class='grupo-angulo'/>"),
+                    // grupo 4: campo de edição de dimensões
+                    $("<div class='form-group'></div>").append(
+                        $("<label class='col-xs-12'>Dimensões do gráfico (pixels):</label>"),
+                        // largura (com checkbox de automatico)
+                        $("<label class='col-xs-4 control-label'>Largura</label>"),
+                        $("<div class='col-xs-5'><input type='text' disabled id='graph-estilo-largura' data-param='largura' class='form-control' value='512' tabindex='" + (tabIndex++) + "'/></div>"),
+                        $("<div class='col-xs-3' style='padding-left:0;'><label class='checkbox-inline'><input type='checkbox' checked id='graph-estilo-auto' tabindex='" + (++tabIndex) + "'/>auto</label></div>")
+                            // já bota o evento de habilitar o campo de texto aqui, já que não tem nenhuma outra consequência
+                            .find("input").click(function () { $("#graph-estilo-largura").prop("disabled", $(this).prop("checked")) })
+                            .end(),
+                        // altura
+                        $("<label class='col-xs-4 control-label'>Altura</label>"),
+                        $("<div class='col-xs-5'><input type='text' id='graph-estilo-altura' data-param='altura' class='form-control' value='320' tabindex='" + ((++tabIndex) - 2) + "'></div>")
+                    )
+                )
+            )
+        )
+    }
+    */
+
+    /*
+    var criarDropdownSalvar = function () {
+        return $("<div class='btn-group'></div>").append(
+            // botão de toggle
+            $('<button type="button" id="graph-toggle-salvar" class="btn btn-default dropdown-toggle collapsed" data-toggle="dropdown">'
+                + '<span class="glyphicon glyphicon-floppy-disk"></span>'
+                + '</button>'),
+            // menu
+            $("<div id='graph-save-wrapper' class='dropdown-menu'></div>").append(
+                $("<form></form>").append(
+                    $("<div class='form-group'></div>").append(
+                        $("<label>Formato:</label>"),
+                        $("<select id='graph-save-fmt' class='form-control'><option data-fmt='svg'>SVG</option><option data-fmt='png'>PNG</option></select>")
+                    ),
+                    $("<hr/>"),
+                    $("<div class='form-group'></div>").append(
+                        $("<button type='button' id='graph-btn-salvar' class='btn btn-default'>Salvar todos os gráficos</button>")
+                    )
+                )
+            )
+        );
+    }
+    */
+
+    comandosPagina["gerar-graficos"] = function () {
+        var editor = pegarEditorVisao();
+
+        if (!editor.inicializado)
+            return false;
+
+        if (editor.ordenacao == "remove") {
+            $("#modal-graficos").modal("show");
+        }
+        else {
+            // se estiver ordenado, mandar a mensagem de que ordenação pode bugar em gráficos antes de proceder
+            var modal = $("#modal-graficos");
+            $.uiDialog({
+                title: "Atenção",
+                text: "Os valores estão <span class='erro'>ordenados</span>, o que pode causar resultados imprevistos nos gráficos.<br />Deseja remover a ordenação antes?",
+                onOK: function () {
+                    editor.__ordenar("remove");
+                    $("#modal-graficos").modal("show");
+                },
+                onCancel: function () {
+                    $("#modal-graficos").modal("show");
+                },
+                okText: "Sim",
+                cancelText: "Não"
+            });
+        }
+    }
+
+    function removerGraficos() {
+        // remove os gráficos e apaga os campos de dados
+        d3.select("#graph-container svg").remove();
+        $("#graph-container").empty();
+        // mata qualquer nvtooltip aberto (o nvd3 pode bugar se o cursor estava sobre um tooltip quando o removeu os gráficos)
+        $(".nvtooltip").remove();
+        // mata todas as referências do nvd3 (ele deveria fazer isso, mas não faz)
+        nv.graphs = [];
+    }
+
+    // função utilizada para criar o modal de graficos
+    var criarModalGraficos = function () {
+        var that = this;
+        // declara a função que preenche as configurações do gráfico quando abre o modal
+        var eventoExibir = function () {
+            that.gerarConfiguracoesGrafico();
+        };
+        // declara a função para o evento de "retornar" do modal
+        var eventoRetornar = function (e) {
+            var $modal = $("#modal-graficos");
+            if ($modal.hasClass("configurar")) {
+                // se estiver nas configurações, limpar as configurações e sai do modal
+                that.selecao = null;
+                $("#graph-eixo").empty();
+                $("#graph-legenda").empty();
+                $("#graph-check-legenda").prop("checked", false);
+                // retorna true para fechar o modal
+                return true;
+            }
+            else {
+                // senão, tentar voltar para a tela de configuração
+                // checar se o dropdown de configurações está válido (para caso ele ainda esteja aberto)
+                if (!that.processarEstiloGrafico(false))
+                    return false;
+                // se estiver válido, efetivamente voltar
+                $modal.addClass("configurar").removeClass("visualizar");
+                // remove os gráficos e apaga os campos de dados
+                removerGraficos();
+                that.graficos.lista = [];
+                // retorna false para não fechar o modal
+                return false;
+            }
+        }
+        // declara a função para o evento de "ok" do modal
+        var eventoOk = function (e) {
+
+            var $modal = $("#modal-graficos");
+            // se estiver na visualização, retorna para a tela de configuração
+            if ($modal.hasClass("visualizar"))
+                return eventoRetornar(e);
+            else {
+                that.criarGraficos();
+                return false;
+            }
+        }
+        // cria o modal
+        var botaoToggleOpcoes = "".concat(
+            '<button class="btn btn-default btn-sm" data-toggle="collapse" id="botao-opcoes-graficos" data-target="#container-opcoes-graficos">',
+            '<i class="glyphicon glyphicon-cog"></i>',
+            '</button>&nbsp;&nbsp;'
+        );
+
+        var $modal = $.uiModal({
+            id: "modal-graficos",
+            "class": "configurar",
+            title: "<span id='modal-titulo'>" + botaoToggleOpcoes + "Visualizar gráficos</span>",
+            //header: $('<div id="graph-tools" class="btn-group"></div>').append(),
+            body: [
+                $("<div id='graph-config'></div>").append($("<form>").append(
+                    criarDropdown("Tipo de gráfico:", "graph-tipo", tiposGraficos, "nome"),
+                    criarDropdown("No eixo:", "graph-eixo")
+                        .find("select").addClass("graph-dimensao").end(),
+                    criarDropdown("<input type='checkbox' id='graph-check-legenda' tabindex='" + (tabIndex++) + "'/>&nbsp;&nbsp;Usar legenda", "graph-legenda")
+                        .addClass("grupo-legenda")
+                        .find("select").addClass("graph-dimensao").end()
+                ))[0],
+                $('<div id="graph-dados"><div id="graph-container"></div></div>')
+                    .prepend($("#template-configuracoes-graficos").tmpl())
+            ],
+            ok: "OK",
+            // eventos
+            onOK: eventoOk,
+            beforeShow: eventoExibir,
+            beforeHide: eventoRetornar
+        });
+
+        // define os eventos para os selects de dimensoes
+        var anterior;
+        $modal.find(".graph-dimensao")
+            .on("focus", function (e) {
+                anterior = this.selectedIndex;
+            })
+            .on("change", function (e) {
+                // se for o dropdown de legenda, seta o checkbox como checked
+                var $item = $(this);
+                if ($item.attr("id") === "graph-legenda")
+                    $("#graph-check-legenda").prop("checked", true);
+                // pega todos os seletores de dimensão de gráfico e verifica se existe algum com a mesma opção que este
+                var $igual = $("#modal-graficos").find(".graph-dimensao").filter(function (i, el) {
+                    return (el.selectedIndex === $item[0].selectedIndex && !$item.is(el));
+                });
+                // se houve um match de opções, colocar a opcao do outro como a opcao anterior
+                if ($igual.length > 0)
+                    $igual[0].selectedIndex = anterior;
+                //
+                anterior = $item[0].selectedIndex;
+            }).end();
+
+        // define os eventos para o picker de ângulo
+        that.pickerData = {
+            plugin: this,
+            tamanho: 64,
+            angulo: 20,
+            ultimo: 0,
+            texto: $modal.find(".picker-angulo-texto")[0]
+        };
+
+        $modal.find(".picker-angulo").drag({
+            "data": that.pickerData,
+            "onDown": inicioDrag,
+            "onMove": pickerMove,
+            "onUp": pickerUp,
+            "smooth": true,
+            "touch": true
+        });
+
+        atualizarPickerAngulo(that.pickerData);
+
+        //$("#menu-opcoes-graficos").prependTo("body");
+        //
+        return $modal;
+    }
+
+    function inicioDrag(x, y, data) {
+        data.ultimo = x;
+    }
+
+    function pickerMove(x, y, data) {
+        var dx = x - data.ultimo;
+        var ang = ~~(data.angulo - dx);
+
+        ang = (ang < 0 ? 0 : ang > 90 ? 90 : ang);
+
+        data.angulo = ang;
+        data.ultimo = x;
+
+        atualizarPickerAngulo(data);
+    }
+
+    function pickerUp(data) {
+        data.plugin.atualizarGraficos(data);
+    }
+
+    function atualizarPickerAngulo(data) {
+        $("#graph-picker-angulo").attr("data-angulo", data.angulo);
+        $(data.texto).attr("transform", "rotate(" + (-data.angulo) + ")");
+    }
+
+
+    // código para criação e exibição do modal de edição de layout
+    function criarModalLayout() {
+        var verificarHash = function () {
+            if (!((location.hash || "").match(/#resultado$/i)))
+                $.sidra.substituirHash("resultado");
+        };
+        //
+        var $modal = $.uiModal({
+            id: 'modal-layout',
+            title: "Layout",
+            ok: "OK",
+            cancel: "Cancelar",
+            //
+            onCancel: function () {
+                var editorLayout = controlador.aplicacao("visao");
+                editorLayout.estado(ultimoLayout);
+            },
+            beforeShow: function () {
+                // antes de exibir o modal, puxar o container do editor de layout pro modal-body e salvar seu estado atual
+                var editorLayout = controlador.aplicacao("visao");
+                ultimoLayout = editorLayout.estado();
+                editorLayout.iniciarEspelho($(this).find(".modal-body"));
+            },
+            afterHide: function () {
+                // quando fechar o modal, devolver o container ao editor
+                var editorLayout = controlador.aplicacao("visao");
+                editorLayout.removerEspelho();
+                // verificar se houve alteração do layout e, caso positivo, redesenha a visão
+                var novoLayout = editorLayout.estado();
+                if (ultimoLayout !== novoLayout) {
+                    verificarHash();
+                    editorLayout.executar();
+                }
+            }
+        });
+        //
+        return $modal;
+    }
+
+    function pegarEditorVisao(el) {
+        var elemento = $(".editor-visao");
+        return (elemento.data(CAMPO_PLUGIN));
+    }
+
+    // conta o número de chaves únicas em um objeto.
+    // retorna {total, valor} -- valor é definido caso exista apenas um valor
+    function contarChaves(objeto) {
+        var n = 0;
+        var valor = "";
+
+        for (var key in objeto) {
+            if (!key)
+                continue;
+            valor = key;
+            n++;
+        }
+
+        return { total: n, valor: valor };
+    }
+
+    // DEPOIS MATAR ISSO QUANDO PASSAR A USAR O PLUGIN DO DROPDOWN
+    var iconesOrdenar = {
+        "": "glyphicon glyphicon-sort",
+        "no-sort": "glyphicon glyphicon-remove",
+        "asc-sort": "glyphicon glyphicon-sort-by-alphabet",
+        "desc-sort": "glyphicon glyphicon-sort-by-alphabet-alt"
+    };
+
+    //
+    function Visao(elemento, opcoes) {
+        // campos default
+        this._defaults = {
+            layout: null,
+            dados: null
+        };
+        // coloca as variáveis internas no estado não-inicializadco
+        this.inicializado = false;
+        //
+        this.vincular(elemento, opcoes);
+    }
+
+    $.extend(Visao.prototype, {
+        // conecta o plugin a um elemento jquery
+        vincular: function (elemento, opcoes) {
+            // copiar as opcoes default pro campo de opcoes
+            this.opcoes = $.extend({}, this._defaults);
+            // inserir os dados no elemento jQuery
+            this.elemento = elemento.addClass("editor-visao");
+            elemento.data(CAMPO_PLUGIN, this);
+            // criar o container de opções e de conteúdo
+            this.htmlEditor = this.criarEditor().appendTo(this.elemento);
+
+            this.conteudo = $("<div>").appendTo(this.elemento);
+            // chamar a inicializacao
+            this.__iniciar(opcoes);
+            // seta os callbacks de tratamento de eventos
+            this.inicializarEventos();
+            // criar o elemento modal oculto
+            this.inicializarModalGraficos();
+            // encadeamento de objeto
+            return elemento;
+        },
+
+        // inicializa a 
+        __iniciar: function (opcoes) {
+            // apaga todo o conteúdo do corpo antigo
+            this.__apagar();
+            this.mapeamento = {};
+            this.estado = {
+                down: false
+            };
+            // estender as opções padrão
+            $.extend(this.opcoes, opcoes);
+            // checa se as variáveis necessárias estão definidas e, caso positivo, cria a primeira versão da visão
+            if (this.opcoes.layout && this.opcoes.dados)
+                this.criarVisao();
+            // encadeamento de objeto
+            return this.elemento;
+        },
+
+        __editor: function () {
+            return this.htmlEditor;
+        },
+
+        // cria a visão inicial
+        criarVisao: function () {
+            this.mapeamento = {};
+            // processa as dimensões do layout e preenche a lista de valores
+            this.ordenacao = "remove";
+            this.processarDimensoes();
+            this.preencherValores();
+            // gera o modelo interno da tabela
+            this.gerarModeloInterno();
+            // desenha a tabela
+            this.conteudo.empty();
+            this.gerarHtml();
+            this.__reiniciarEditor();
+            // sinaliza que já existem dados disponiveis
+            this.inicializado = true;
+        },
+
+        // atualiza o layout da visão,
+        __layout: function (layout) {
+            // apaga todo o conteúdo do corpo antigo
+            this.__apagar();
+            // só podemos atualizar uma visão previamente inicializada
+            if (!this.inicializado) {
+                console.log("Plugin de visão não inicializado");
+                return;
+            }
+            // atualiza o layout com as novas informações
+            this.atualizarLayout(layout);
+            // processa o novo layout e preenche a lista de valores
+            this.ordenacao = "remove";
+            this.processarDimensoes();
+            this.preencherValores();
+            // gera o modelo interno da tabela
+            this.gerarModeloInterno();
+            // desenha as novas tabelas
+            this.gerarHtml();
+            this.__reiniciarEditor();
+            // encadeamento de objeto
+            return this.elemento;
+        },
+
+        __cabecalhos: function () {
+            var resultado = [];
+
+            var tabelas = this.modelo.tabelas.slice();
+            var nTabelas = tabelas.length;
+
+            while (tabelas.length) {
+                var tabela = [];
+                for (var it = tabelas.shift(); it.tipo == tipoDado.rotulo; it = it.pai)
+                    tabela.unshift(it.campo.nome);
+                resultado.push(tabela);
+            }
+
+            return resultado;
+        },
+
+        // apaga o html do corpo do elemento
+        __apagar: function () {
+            this.conteudo.empty();
+            // encadeamento de objeto
+            return this.elemento;
+        },
+
+        // inicializa os eventos de interface
+        inicializarEventos: function () {
+            var that = this;
+            that.elemento.on("click", "th,td", that, eventoEditor);
+            UI.hover(that.elemento, hover);
+            // quando houver mudança nas dimensões da janela, devemos reconfigurar os retângulos 
+            UI.addResizeListener(function (_) {
+                that.processarRedimensionamento.apply(that, arguments);
+            });
+        },
+
+        //
+        opcoesTabela: [
+            "*Gerais",
+            {
+                id: "tabela-check-cabecalho",
+                titulo: "agruparNoCabecalho",
+                texto: "Dimensões com 1 campo no cabeçalho",
+                marcacao: "checked"
+            },
+            {
+                id: "tabela-check-rodape",
+                titulo: "exibirNotas",
+                texto: "Notas de rodapé",
+                toggle: "omitir-notas",
+                marcacao: "checked"
+            },
+            {
+                id: "tabela-check-rotulos",
+                titulo: "abreviarRotulos",
+                texto: "Rótulos completos",
+                toggle: "abreviar-rotulos",
+                marcacao: "checked"
+            },
+            "-", "*Dimensões",
+            /*{
+                id: "tabela-check-unidades",
+                titulo: "omitirMedidas",
+                texto: "Unidades de medida",
+                toggle: "omitir-medidas",
+                marcacao: "checked"
+            },*/
+            {
+                id: "tabela-check-somatorios",
+                titulo: "omitirSoma",
+                texto: "Nomes completos em somatórios",
+                toggle: "omitir-soma",
+                marcacao: ""
+            },
+            {
+                id: "tabela-check-medidas",
+                titulo: "verColunaMedidas",
+                texto: "Exibir unidades de medida como coluna",
+                marcacao: ""
+            },
+            "-", "*Unidades Territoriais",
+            {
+                id: "tabela-check-indentacao",
+                titulo: "omitirIndentacao",
+                texto: "Indentação de rótulos",
+                toggle: "omitir-indentacao",
+                marcacao: "checked"
+            },
+            {
+                id: "tabela-check-siglas",
+                titulo: "verSiglasNiveis",
+                texto: "Exibir siglas de níveis",
+                marcacao: ""
+            },
+            {
+                id: "tabela-check-codigos",
+                titulo: "verCodigosTerritorios",
+                texto: "Exibir códigos",
+                marcacao: "",
+                seDesmarcar: "verNomesTerritorios" // o campo "seDesmarcar" determina qual checkbox será ligando quando este for desligado
+            },
+            {
+                id: "tabela-check-nomes",
+                titulo: "verNomesTerritorios",
+                texto: "Exibir nomes",
+                marcacao: "checked",
+                seDesmarcar: "verCodigosTerritorios"
+            },
+            {
+                id: "tabela-check-complementos1",
+                titulo: "verComplementos1",
+                texto: "Primeiro complemento",
+                toggle: "omitir-comp1",
+                marcacao: "checked"
+            },
+            {
+                id: "tabela-check-complementos2",
+                titulo: "verComplementos2",
+                texto: "Segundo complemento",
+                toggle: "omitir-comp2",
+                marcacao: "checked"
+            },
+            {
+                id: "tabela-check-uf",
+                titulo: "verUFs",
+                texto: "Unidades da federação",
+                toggle: "omitir-uf",
+                marcacao: "checked"
+            }
+        ],
+
+        templateOpcaoTabela: "<label class='checkbox-inline'><input type='checkbox' id='${id}' ${marcacao}/>${texto}</label>",
+        //
+        criarEditor: function () {
+            var that = this;
+
+            var $container = $("#template-configuracoes-tabela")
+                .tmpl()
+                .on("click", ".cmd-tabela", this, eventoFerramenta);
+
+            // processa as opções de configuração de visão
+            this.marcacoes = {};
+            var itensOpcoes = this.opcoesTabela.slice();
+            for (var i = 0; i < itensOpcoes.length; i++) {
+                var opcao = itensOpcoes[i];
+                if (typeof opcao !== "string") {
+                    opcao.marcacao = (opcoesVisualizacao[opcao.titulo]["valor"] == true ? "checked" : "");
+                    // se for o checkbox de agrupar no cabeçalho, ler o valor do editor de layout
+                    if (opcao.titulo === "agruparNoCabecalho")
+                        opcao.marcacao = this.autoCabecalho() && opcao.marcacao;
+
+                    // 
+                    this.marcacoes[opcao.titulo] = {
+                        referencia: opcao,
+                        marcado: (!!opcao.marcacao)
+                    };
+                    //
+                    if (opcao.toggle)
+                        this.elemento.toggleClass(opcao.toggle, opcao.marcacao != "checked");
+                    //
+                    opcao = {
+                        id: i + "e0", // sufixo exponencial, pra diferenciar os índices de opções dos do dropdown
+                        text: $.sidra.template(this.templateOpcaoTabela, opcao)
+                    };
+                }
+                // sobrescreve a opção na lista
+                itensOpcoes[i] = opcao;
+            }
+
+
+            //MODAL
+            var $modal = $("#modal-opcoes-visualizacao");
+            $modal.on("change", "input[type=checkbox]", function () {
+                that.eventoAlterarOpcao($(this));
+            });
+            //
+            var grupo = $("<div>")
+                .addClass("btn-group")
+                .appendTo($container);
+            //
+            return $container;
+        },
+
+
+
+        eventoAlterarOpcao: function (selecao) {
+            var opcao;
+            for (var i = 0; i < this.opcoesTabela.length; i++) {
+                if (this.opcoesTabela[i].id == selecao.attr("id")) {
+                    opcao = this.opcoesTabela[i];
+                    break;
+                }
+            }
+
+            this.alterarOpcao(opcao, false);
+        },
+
+        alterarOpcao: function (opcao, isreferencia) {
+            var elemento = $("#" + opcao.id);
+            var marcado = elemento.prop("checked");
+
+            if (isreferencia) {
+                if (!marcado) {
+                    marcado = !marcado;
+                    elemento.prop("checked", marcado);
+                }
+            }
+
+            this.marcacoes[opcao.titulo].marcado = marcado;
+            opcoesVisualizacao[opcao.titulo]["valor"] = marcado
+
+            if (opcao.toggle) {
+                this.elemento.toggleClass(opcao.toggle, !marcado);
+            }
+            else if (isResultadoVisivel()) {
+                var evento = this.eventos[opcao.titulo];
+
+                if (evento) {
+                    if (!marcado && opcao.seDesmarcar) {
+                        var seDesmarcar = this.marcacoes[opcao.seDesmarcar];
+                        if (!seDesmarcar.marcado)
+                            return this.alterarOpcao(seDesmarcar.referencia, true);
+                    }
+                    evento.call(this, marcado);
+                }
+            }
+
+            this.processarRedimensionamento();
+        },
+
+        eventos: {
+            verSiglasNiveis: function (ligado) {
+                this.criarVisao();
+            },
+            verColunaMedidas: function (ligado) {
+                this.criarVisao();
+            },
+            verCodigosTerritorios: function (ligado) {
+                this.criarVisao();
+            },
+            verNomesTerritorios: function (ligado) {
+                this.criarVisao();
+            },
+            agruparNoCabecalho: function (ligado) {
+                controlador.aplicacoes.visao.autoCabecalho(ligado);
+                this.criarVisao();
+            }
+        },
+
+        // retorna um objeto contendo os dados relativos à seleção atual
+        __selecao: function () {
+            throw "Não implementado"
+        },
+
+        _processarDivisaoTerritorio: function (dimensao) {
+            // se a dimensão estiver na linha, realizar uma divisão completa
+            var tipoDivisao = (dimensao.posicao == tipoPosicao.linha ? "completa" : "texto"); // texto, dados, completa
+
+            var divisao = dimensao.divisao = {
+                tipo: tipoDivisao,
+                span: 0,
+                campos: []
+            };
+
+            var marcacoes = this.marcacoes;
+
+            if (marcacoes.verSiglasNiveis.marcado) {
+                divisao.campos.push({
+                    prop: "sigla",
+                    titulo: "Sigla do nível territorial",
+                    rotulo: "Nível"
+                });
+            }
+
+            if (marcacoes.verCodigosTerritorios.marcado) {
+                var rotulo = (!marcacoes.verNomesTerritorios.marcado ? dimensao.rotulo : "Cód.");
+                divisao.campos.push({
+                    prop: "id",
+                    titulo: "Código da unidade territorial",
+                    rotulo: rotulo
+                });
+            }
+
+            if (marcacoes.verNomesTerritorios.marcado) {
+                divisao.campos.push({
+                    prop: "nome",
+                    titulo: "Nome da unidade territorial",
+                    rotulo: dimensao.rotulo
+                });
+            }
+
+            divisao.span = divisao.campos.length;
+
+            // se for uma divisao completa, sinalizar que haverá um incremento de span na tabela gerada
+            if (tipoDivisao == "completa")
+                this.incrementoPorDivisao += divisao.span - 1;
+        },
+
+        // define as funções internas para geração do modelo
+        processaDimensao: function (dimensoes, pai, nivel, indice) {
+            // se o pai estiver indefinido, criá-lo como a raiz
+            var raiz = null;
+            if (!pai) {
+                pai = raiz = {
+                    tipo: tipoDado.raiz,
+                    pai: null,
+                    indice: 0,
+                    filhos: [],
+                    folhas: []
+                };
+            }
+            // se "dimensoes" for vazio, não existem dados para esta dimensão
+            if (dimensoes.length === 0)
+                return pai;
+
+            // se algum indice estiver indefinido, seta como zero
+            nivel = (nivel || 0);
+            indice = (indice || 0);
+
+            // verifica se é um elemento folha da árvore e, caso positivo, encontra o nó raiz
+            var dimensao = dimensoes[nivel];
+            var isFolha = (nivel === dimensoes.length - 1);
+            if (isFolha) {
+                for (raiz = pai; raiz.pai !== null;)
+                    raiz = raiz.pai;
+            }
+
+            // processar algumas coisas na primeira execução da dimensão territorial
+            if (indice == 0 && dimensao.tipo >= tipoDimensao.territorio)
+                this._processarDivisaoTerritorio(dimensao);
+
+            // iteração para cada campo desta dimensão
+            for (var j = 0; j < dimensao.campos.length; j++) {
+                var campo = dimensao.campos[j];
+                var objDim = {
+                    "tipo": tipoDado.rotulo,
+                    "pai": pai,
+                    "dimensao": dimensao,
+                    "campo": campo,
+                    "indice": indice,
+                    "filhos": (isFolha ? null : []),
+                    "m": [], // para armazenar as unidades de medida (em ordem de percorrimento no desenho do html)
+                    "html": []
+                };
+                // insere este objeto no pai
+                pai.filhos.push(objDim);
+                // se o elemento não for folha, recursão para o próximo subnivel
+                if (!isFolha) {
+                    indice = this.processaDimensao(dimensoes, objDim, nivel + 1, indice);
+                }
+                else {
+                    // senão, cria o campo de referência para uma instância desta dimensão
+                    objDim.inst = [];
+                    // insere o objeto no vetor de folhas da raiz, e incrementa o contador
+                    raiz.folhas.push(objDim);
+                    indice++
+                }
+            }
+            return (raiz === pai ? pai : indice);
+        },
+
+        // cria o modelo interno que representa a correlação entre os dados das tabelas e dimensões
+        gerarModeloInterno: function () {
+            // variaveis para armazenar as folhas na hierarquia de linhas e colunas
+            var linhas = [];
+            var colunas = [];
+
+            // gerar a hierarquia de dimensoes
+            var colunaMedidas = this.marcacoes.verColunaMedidas.marcado;
+            this.incrementoPorDivisao = 0;
+            this.subdivisaoColunas = (colunaMedidas ? 2 : 1);
+
+            var modelo = this.modelo = {
+                // dados de hierarquia
+                raizTabela: this.processaDimensao(this.layout.cabecalhos),
+                raizColuna: this.processaDimensao(this.layout.colunas),
+                raizLinha: this.processaDimensao(this.layout.linhas)
+            }
+
+            // se não houver ninguém no cabeçalho, temos uma tabela sem cabeçalho
+            if (modelo.raizTabela.folhas.length === 0)
+                modelo.raizTabela.folhas.push({ tipo: tipoDado.vazio, indice: 0, dados: [] });
+
+            // cria um atalho pras folhas de tabela, apenas por questões de legibilidade
+            modelo.tabelas = modelo.raizTabela.folhas;
+
+            // gera o cabecalho dos rotulos das colunas
+            modelo.raizColuna.nome = $.sidra
+                .select(this.layout.colunas, "rotulo", true)
+                .join(" x ");
+
+            modelo.raizColuna.dimensao = { span: this.contagem.colunas };  // cria uma dimensão virtual, apenas para armazenar o span
+
+            // cria uma dimensão virtual tambem para a raiz das linhas, apenas para armazenar o span
+            modelo.raizLinha.dimensao = { span: this.contagem.linhas };
+            //
+            this.dimensaoPeriodo.possuiMedida = true;
+            var medidas = this.layout.medidas;
+
+            // cria as referências de dados, separando em blocos de linhas em cada tabela
+            var contagem = this.contagem;
+            modelo.blocos = [];
+            var n = 0;
+
+            // loop de tabela
+            for (var t = 0; t < contagem.tabelas; t++) {
+                var tabela = modelo.tabelas[t];
+                // cria o campo de notas
+                tabela.notas = [];
+                // cria as referencias de colunas na tabela
+                tabela.colunas = [];
+
+                for (var i = this.contagem.colunas; i--;) {
+                    var coluna = tabela.colunas[i] = {
+                        "tipo": tipoDado.instancia,
+                        "tabela": tabela,
+                        "rotulo": modelo.raizColuna.folhas[i],
+                        "ordem": i,
+                        "dados": []
+                    };
+
+                    // insere uma referência cruzada no campo, para permitir resgatar os dados
+                    if (coluna.rotulo)
+                        coluna.rotulo.inst.push(coluna);
+                }
+
+                // referencias para as linhas (vão ser preenchidas no loop)
+                tabela.linhas = [];
+                // loop de linha
+                for (var y = 0; y < contagem.linhas; y++) {
+                    var linha = tabela.linhas[y] = {
+                        "tipo": tipoDado.instancia,  // cria esse atributo porque vai ser usado como referência no HTML
+                        "tabela": tabela,
+                        "rotulo": modelo.raizLinha.folhas[y],
+                        "ordem": y,
+                        "dados": []
+                    };
+
+                    // insere uma referência cruzada no campo, para permitir resgatar os dados
+                    if (linha.rotulo)
+                        linha.rotulo.inst.push(linha);
+
+                    // loop de coluna
+                    for (var x = 0; x < contagem.colunas; x++) {
+                        var coluna = tabela.colunas[x];
+                        var dado = (this.valores[n++] || dadoVazio);
+                        var celula = {
+                            "r": dado,
+                            "x": coluna,
+                            "y": linha,
+                            "z": tabela,
+                            "m": medidas[dado.MC],
+                            "s": false,     // indica se o elemento pertence ou não a alguma seleção
+                            "h": null       // referência cruzada para o html
+                        };
+                        // insere nas respectivas dimensoes (gasta mais memória, mas acho que vale a pena o ganho de desempenho)
+                        coluna.dados.push(celula);
+                        linha.dados.push(celula);
+                    }
+                }
+            }
+
+            // se estiver exibindo a coluna de medidas, não precisa processar as medidas no cabeçalho 
+            if (colunaMedidas)
+                return;
+
+            // preparar as dimensões das instâncias de campos
+            try {
+                this.processarMedidas();
+            }
+            catch (e) {
+                $.sidra.debugErro(e);
+            }
+        },
+
+        gerarHtml: function () {
+            // apaga o elemento
+            this.conteudo.empty();
+            // reinicia o nome do dropdown de ordenação
+            this.iconeDropdownOrdenacao();
+
+            var that = this;
+            var layout = this.layout;
+            var contagem = this.contagem;
+            //var $container = this.elemento;
+            var $container = $("<div>").addClass("container-tabelas");
+
+            // gerar os grupos de colunas de dados, pulando as colunas dos rótulos de linhas
+            var spanRotulosLinhas = contagem.dimensoesLinha + this.incrementoPorDivisao;
+            var subdivisaoColunas = this.subdivisaoColunas;
+
+            var htmlGrupos = [];
+
+            for (var c = 0; c < contagem.colunas; c++) {
+                htmlGrupos.push("<col class='x-col-" + c + "' span='" + subdivisaoColunas + "'/>");
+            }
+
+            var grupos = "<colgroup>"
+                + (!spanRotulosLinhas ? "" : "<col span='" + spanRotulosLinhas + "' />")
+                + htmlGrupos.join("")
+                + "</colgroup>";
+
+            // para cada elemento no cabeçalho, gera uma subtabela
+            var indiceValor = 0;
+            var raizColunas = this.modelo.raizColuna;
+            var tabelas = this.modelo.tabelas.slice();
+
+            var spanCabecalho = spanRotulosLinhas + subdivisaoColunas * contagem.colunas;
+            var tabelaGrande = (contagem.valoresTotal > limiarTabelaGrande);
+
+            var nTabelas = tabelas.length;
+
+            for (var t = 0; t < nTabelas; t++) {
+                // cria o elemento para conter a tabela, e insere os grupos de colunas
+                var $tabela = $("<table>")
+                    .attr("data-mult-colunas", subdivisaoColunas)
+                    .addClass("table visao no-select")
+                    .toggleClass("tabela-grande", tabelaGrande)
+                    .append(grupos);
+
+                // cria o cabeçalho com os rótulos das linha e colunas
+                var cabecalho = tabelas.shift();
+                var $cabecalho = that.gerarRotulos(cabecalho).appendTo($tabela);
+
+                // cria as linhas relativas às dimensões no cabeçalho (de trás pra frente, subindo na hierarquia de dimensões)
+                for (var it = cabecalho; it.tipo === tipoDado.rotulo; it = it.pai) {
+                    // gerar o html (pode ter unidade de medida caso as variáveis estejam no cabeçalho)
+                    var texto = that.gerarRotuloDimensao(it, t);
+
+                    if (it.dimensao.rotulo)
+                        texto = it.dimensao.rotulo + " - " + texto;
+
+                    $cabecalho.prepend(
+                        $("<tr>").append(
+                            $("<th>")
+                                .addClass("cabecalho tabela")
+                                .attr("colspan", spanCabecalho)
+                                .data(CAMPO_REFERENCIA, raizColunas)
+                                .append(that.wrapRotulo(texto))
+                        )
+                    );
+                }
+
+                // insere o titulo da tabela (é prepend, por isso vem no fim)
+                $cabecalho.prepend(
+                    $("<tr>").append(
+                        $("<th>").addClass("titulo")
+                            .attr("colspan", spanCabecalho)
+                            .data(CAMPO_REFERENCIA, raizColunas)
+                            .append(that.wrapRotulo(layout.titulo))
+                    )
+                );
+
+                // gera o corpo da tabela com as linhas de dados
+                $tabela.append(
+                    that.gerarLinhas(cabecalho),
+                    that.gerarRodape(cabecalho));
+
+                // insere no html
+                var $wrapper = $("<div>", { "class": "wrapper-tabela" }).append($tabela);
+                $container.append($wrapper);
+
+                // insere a referência cruzada para o elemento html
+                cabecalho.html = $tabela;
+
+                // cria o retângulo de seleção (inicialmente oculto)
+                cabecalho.selecao = new RetanguloSelecao(that, cabecalho);
+            }
+
+            // incluir as notas de rodapé
+            if (this.layout.notas)
+                $container.append(this.gerarNotasRodape());
+
+            // incluir no fluxo html
+            this.conteudo.append($container);
+
+            // rolao para o topo do elemento, porque alguns browsers salvam a posição anterior ao empty. (meio confuso mexer no
+            // overflow, mas só scrollTop(0) bugava alguns browsers, que rolavam o componente sem atualizar a barra de rolagem)
+            this.elemento
+                .css("overflow", "hidden")
+                .scrollTop(0)
+                .css("overflow", "auto");
+        },
+
+        gerarNotasRodape: function () {
+            var notas = this.layout.notas.slice();
+            var $notas = [], linha;
+
+            while (notas.length) {
+                var linhas = notas.shift().split("<br>");
+                var nLinhas = linhas.length;
+                for (var j = 0; j < nLinhas; j++)
+                    if (linhas[j]) {
+                        var nota = $("<tr><td>" + linhas[j] + "</td></th>");
+
+                        if (j < nLinhas - 1)
+                            nota.addClass("no-border-bottom");
+                        if (j > 0)
+                            nota.addClass("no-border-top");
+
+                        $notas.push(nota);
+                    }
+            }
+
+            var header = $("<thead><tr><th>Notas</th></tr></thead>");
+            var body = $("<tbody></tbody>").append($notas);
+
+            return $("<table class='table visao fonte-resultado'></table>")
+                .append(header, body);
+        },
+
+        gerarRodape: function (tabela) {
+            var $rodape = $("<tfoot>");
+
+            var subdivisaoColunas = this.subdivisaoColunas;
+            var spanRodape = subdivisaoColunas * this.contagem.colunas + this.contagem.dimensoesLinha + this.incrementoPorDivisao;
+
+            var notas = tabela.notas;
+
+            if (notas.length > 0) {
+                var span = (subdivisaoColunas * this.contagem.colunas + 1);
+
+                for (var i = 0; i < tabela.notas.length; i++) {
+                    $rodape.append("<tr><th class='rodape' colspan='" + span + "'>" + this.wrapRotulo(tabela.notas[i]) + "</th></tr>");
+                }
+            }
+
+            return $rodape.append($("<tr><th colspan='" + spanRodape + "' class='rodape fonte'>" + this.wrapRotulo("Fonte: " + this.layout.fonte) + "</th></tr>"));
+        },
+
+        // cria as linhas contendo os rotulos das linhas e colunas
+        gerarRotulos: function (tabela) {
+            var that = this;
+            var idTabela = tabela.indice;
+            var layout = this.layout;
+            var contagem = this.contagem;
+            var $rotulos = $("<thead>");
+            var $linha = $("<tr class='rotulos'></tr>");
+
+            // rótulos das linhas
+            var raizLinhas = this.modelo.raizLinha;
+            var length = layout.linhas.length;
+
+            for (var i = 0; i < length; i++) {
+                var classeUltima = (i == length - 1 ? "cab-ult" : "");
+                var dimensao = layout.linhas[i];
+
+                // calcular o span vertical da célula
+                var span = "rowspan=" + (contagem.dimensoesColuna + 1);
+
+                var parametros = {
+                    classe: "cabecalho linha",
+                    span: span,
+                    texto: null
+                };
+
+                // verificar se é uma dimensão dividida
+                var divisao = dimensao.divisao;
+
+                if (!divisao || divisao.tipo == "dados") {
+                    // se a divisão for nos dados, aplicar também um colspan no cabeçalho
+                    if (divisao)
+                        span += " colspan=" + divisao.span;
+
+                    parametros.texto = this.wrapRotulo(dimensao.rotulo);
+
+                    $.tmpl(this.templateRotuloTabela, parametros)
+                        .data(CAMPO_REFERENCIA, raizLinhas)
+                        .addClass(classeUltima)
+                        .appendTo($linha);
+                }
+                else {
+                    // senão, devemos criar uma célula com o rótulo das divisões antes do cabeçalho
+                    for (var s = 0; s < divisao.span; s++) {
+                        var campo = divisao.campos[s];
+
+                        parametros.texto = campo.rotulo;
+
+                        $.tmpl(this.templateRotuloTabela, parametros)
+                            .data(CAMPO_REFERENCIA, raizLinhas)
+                            .addClass(classeUltima)
+                            .appendTo($linha);
+                    }
+                }
+            }
+
+            // rótulos das colunas
+            var raizColunas = this.modelo.raizColuna;
+            var subdivisaoColunas = this.subdivisaoColunas;
+
+            if (raizColunas.folhas.length || raizLinhas.folhas.length) {
+                // se não houverem elementos nas colunas mas houverem nas linhas, tem que ter 1 célula de padding
+                var parametros = {
+                    classe: "cabecalho coluna",
+                    span: "colspan=" + (subdivisaoColunas * contagem.colunas),
+                    texto: this.wrapRotulo(raizColunas.nome || "")
+                };
+                $.tmpl(this.templateRotuloTabela, parametros)
+                    .data(CAMPO_REFERENCIA, raizColunas)
+                    .appendTo($linha);
+            }
+
+            // só insere a linha de rótulos no html se ela não estiver vazia
+            if ($linha.children().length > 0)
+                $linha.appendTo($rotulos)
+
+            // para cada nivel de dimensao na coluna, cria os rótulos dos campos segundo a hierarquia
+            var pilha = raizColunas.filhos.slice();  // copia todos os campos no primeiro nível
+
+            while (pilha.length) {
+                $linha = $("<tr>").appendTo($rotulos);
+
+                for (var i = pilha.length; i--;) {
+                    var ref = pilha.shift();
+
+                    // cria o campo na linha de rotulos de colunas, verificando se existe unidade de medida
+                    var texto = this.gerarRotuloDimensao(ref);
+
+                    var parametros = {
+                        classe: "rotulo coluna" + (ref.filhos ? "" : " dados"),
+                        span: "colspan=" + (subdivisaoColunas * ref.dimensao.span),
+                        title: $.sidra.removerTags(texto),
+                        texto: texto
+                    };
+
+                    var $celula = $.tmpl(this.templateRotuloTabela, parametros)
+                        .data(CAMPO_REFERENCIA, ref)
+                        .appendTo($linha);
+
+                    if (ref.filhos) {
+                        // se houver uma dimensão inferior, inserir na pilha
+                        pilha = pilha.concat(ref.filhos);
+                    }
+                    else {
+                        // senão, estamos no nó folha. inserir a classe com o indice da coluna
+                        $celula.addClass("x-col-" + ref.indice);
+                    }
+                }
+            }
+            return $rotulos;
+        },
+
+        wrapRotulo: function (texto) {
+            return "<span class='texto-rotulo'>" + texto + "</span>";
+        },
+
+        templateIndentacao: "<span class='rotulo-indentacao'>{0}</span>",
+        templateRotuloTabela: "<th class='${classe}' title='${title}' ${span}><span class='texto-rotulo'>{{html indentacao}}{{html texto}}</span></th>",
+        //
+        gerarIndentacao: function (indentacao) {
+            return (!indentacao ? "" : $.sidra.substituir(this.templateIndentacao, mapaIndentacao[indentacao]));
+        },
+
+        //
+        deveGerarRotulo: function (anterior, atual) {
+            return (!anterior || (atual.tipo !== tipoDado.raiz && atual.indice === anterior.indice));
+        },
+
+        gerarRotuloDimensao: function (referencia, indice) {
+            var dimensao = referencia.dimensao;
+            var campo = referencia.campo;
+            var texto;
+
+            var isTerritorio = (dimensao.tipo >= tipoDimensao.territorio);
+
+            if (!isTerritorio) {
+                texto = campo.nome;
+
+                if (campo.modo == "soma")
+                    texto += "<span class='rotulo-soma'> (" + campo.comp + ")</span>";
+
+                texto += this.gerarTextoMedida(referencia, indice || 0);
+            }
+            else {
+                // cria o texto a partir dos campos de divisão
+                var partes = dimensao.divisao.campos.slice();
+
+                for (var i = partes.length; i--;)
+                    partes[i] = (campo[partes[i].prop] || "");
+
+                texto = partes.join(" - ");
+
+                // insere os complementos selecionados
+                texto += this.gerarComplementosTerritorio(campo);
+            }
+
+            return texto;
+        },
+
+        gerarComplementosTerritorio: function (campo) {
+            var texto = "";
+
+            if (campo.comp1 && this.marcacoes.verComplementos1.marcado)
+                texto += "<span class='rotulo-comp1'> - " + campo.comp1 + "</span>";
+
+            if (campo.comp2 && this.marcacoes.verComplementos2.marcado)
+                texto += "<span class='rotulo-comp2'> - " + campo.comp2 + "</span>";
+
+            if (campo.uf && this.marcacoes.verUFs.marcado)
+                texto += "<span class='rotulo-uf'> (" + campo.uf + ")</span>";
+
+            return texto;
+        },
+
+        gerarRotuloLinha: function () {
+
+
+        },
+
+        // cria o corpo do html, contendo os rotulos das linhas e os dados
+        gerarLinhas: function (tabela) {
+            // cria as linhas da tabela
+            var that = this;
+            var idTabela = tabela.indice;
+            var $corpo = $("<tbody>");
+
+            var folhas = this.modelo.raizLinha.folhas;
+            var nFolhas = (folhas.length || 1);
+
+            for (var i = 0; i < nFolhas; i++) {
+                var folha = folhas[i];  // se não houverem dimensões na linha, é undefined. no problem.
+                //console.log(folha) // **************************************************************************************************************
+
+                // percorre a hierarquia de dimensões inserindo os rotulos dos campos
+                var $linha = $("<tr>")
+                    .appendTo($corpo);
+
+                var anterior = null;
+
+                for (var ref = folha; ref && this.deveGerarRotulo(anterior, ref); ref = ref.pai) {
+                    // gera o texto e a indentação, quando houver
+                    var referencia = (anterior ? ref : ref.inst[tabela.indice]);
+
+                    var parametros = {
+                        classe: "rotulo linha" + (anterior ? "" : " dados"),
+                        span: "rowspan=" + ref.dimensao.span,
+                        title: "",
+                        texto: "",
+                        indentacao: ""
+                    };
+
+                    var divisao = ref.dimensao.divisao;
+
+                    if (!divisao || divisao.tipo == "texto") {
+                        var texto = this.gerarRotuloDimensao(ref);
+
+                        parametros.texto = texto;
+                        parametros.title = $.sidra.removerTags(texto);
+                        parametros.indentacao = this.gerarIndentacao(ref.campo.indentacao);
+
+                        $.tmpl(this.templateRotuloTabela, parametros)
+                            .data(CAMPO_REFERENCIA, referencia)
+                            .prependTo($linha);
+                    }
+                    else {
+                        // se for uma dimensão dividida, inserir o código antes do nome do campo (executamos depois porque é "prepend")
+                        var exibeNomes = this.marcacoes.verNomesTerritorios.marcado;
+
+                        for (var s = divisao.span; s--;) {
+                            var parte = divisao.campos[s];
+                            var texto = ref.campo[parte.prop];
+                            var indentacao = "";
+
+                            if (s == divisao.span - 1) {
+                                indentacao = this.gerarIndentacao(ref.campo.indentacao);
+                                if (exibeNomes)
+                                    texto += this.gerarComplementosTerritorio(ref.campo);
+                            }
+
+                            parametros.title = parte.titulo;
+                            parametros.texto = texto;
+                            parametros.indentacao = indentacao;
+
+                            $.tmpl(this.templateRotuloTabela, parametros)
+                                .data(CAMPO_REFERENCIA, referencia)
+                                .prependTo($linha);
+                        }
+                    }
+                    //
+                    anterior = ref;
+                }
+
+                // insere os dados, criando a referência cruzada para o elemento html
+                var linha = tabela.linhas[i];
+                linha.html = $linha;
+
+                var dados = linha.dados;
+                var subdivisaoColunas = (this.subdivisaoColunas > 1);
+
+                for (var j = 0; j < dados.length; j++) {
+                    var dado = dados[j];
+                    dado.t = $.sidra.formatarNumero(dado.r.V);
+
+                    dado.h = $("<td>")
+                        .addClass("x-col-" + j)
+                        .appendTo($linha);
+
+                    if (subdivisaoColunas) {
+                        $("<td>")
+                            .addClass("x-medida x-col-" + j)
+                            .appendTo($linha);
+                    }
+
+                    this._preencherDadosCelula(dado, subdivisaoColunas);
+                }
+            }
+
+            return $corpo;
+        },
+
+        _preencherDadosCelula: function (celula, colunaMedidas) {
+            celula.h
+                .html(celula.t)
+                .attr("title", (celula.m || "-"))
+                .data(CAMPO_REFERENCIA, celula);
+
+            if (colunaMedidas) {
+                celula.h.next()
+                    .html(celula.m || "-")
+                    .attr("title", (celula.m || "-"))
+                    .data(CAMPO_REFERENCIA, celula);
+            }
+        },
+
+        // executa a propagação para as instâncias das folhas, e retorna um array com os índices das dimensões com medidas cruzadas (que não puderam ser agregadas)
+        _propagarMedidasInstancias: function (tabela, folhas) {
+            var indicesCruzadas = [];   // armazena o indice das folhas que possuem medidas cruzadas
+
+            for (var b = 0; b < folhas.length; b++) {
+                var folha = folhas[b].inst[tabela];
+
+                // acumular as unidades de medida na hierarquia para verificar variações
+                var medidas = {};
+
+                for (var c = folha.dados.length; c--;) {
+                    var m = folha.dados[c].m;
+                    if (m) // descartar valores nulos
+                        medidas[m] = true;
+                }
+
+                // se existe mais de uma medida, inserir na lista de medidas cruzadas. senão, fixar a unidade na folha
+                var contagem = contarChaves(medidas);
+
+                if (contagem.total > 1)
+                    indicesCruzadas.push(b);
+                else
+                    folha.m = contagem.valor;
+            }
+
+            return indicesCruzadas;
+        },
+
+        // propaga as unidades de medida na hierarquia de dimensões da tabela
+        // ********************************************************************************************************************
+        // ********************************************************************************************************************
+        // ALTAS GAMBY, MAS ISSO DEVE MUDAR DEPOIS QUE USAR O TABLECRAFT
+        // ********************************************************************************************************************
+        // ********************************************************************************************************************
+        processarMedidas: function () {
+            var variaveis = this.dimensaoVariavel;
+            // a partir da dimensão variável, identificar a hierarquia de base e de cruzamento
+            // (hierarquia de base é onde as variáveis são definidas, e de cruzamento a ortogonal a esta)
+            var base, cruzada;
+            if (variaveis.posicao === tipoPosicao.linha) {
+                // se estiver na linha
+                base = this.modelo.raizLinha;
+                cruzada = this.modelo.raizColuna;
+            }
+            else {
+                // se estiver no cabeçalho ou coluna
+                base = this.modelo.raizColuna;
+                cruzada = this.modelo.raizLinha;
+            }
+            // verificar se a dimensão variável está no cabeçalho
+            var variavelNoCabecalho = (variaveis.posicao === tipoPosicao.cabecalho);
+            if (variavelNoCabecalho) {
+                // se estiver no cabeçalho, inicializar sua estrutura de medidas
+                for (var i = variaveis.campos.length; i--;)
+                    variaveis.campos[i].m = [];
+            }
+            // gerar as unidades de medida para cada tabela
+            for (var t = 0; t < this.contagem.tabelas; t++) {
+                // propagar as unidades para as folhas da posicao base, a partir das celulas abrangidas por esta
+                //
+                // podemos acelerar a verificação se considerarmos que dimensões sem medida multiplicam folhas sem influenciar 
+                // a medida do eixo. assim, calculamos o tamanho do passo referente a estas e lemos apenas 1 coluna. 
+                // OTIMIZAR DEPOIS ESSA BAGAÇA, SE PRECISAR ********************************************************
+                //
+                // executar a propagação para as instâncias das folhas
+                var medidaCabecalho;
+                if (!base.folhas.length) {
+                    // GAMBY PRA TRATAR O CASO ESPECÍFICO ONDE A VARIÁVEL ESTÁ NO CABEÇALHO E A TABELA NÃO TEM COLUNAS.
+                    // ODEIO ESSAS GAMBY, MAS DEPOIS VAI USAR O TABLECRAFT T.T
+                    if (!cruzada.folhas.length) {
+                        medidaCabecalho = this.modelo.raizTabela.folhas[t].colunas[0].dados[0].m;
+                    }
+                    else {
+                        this._propagarMedidasInstancias(t, cruzada.folhas);
+                        medidaCabecalho = this.subirMedidas(t, cruzada, true);
+                    }
+                }
+                else {
+                    // antes de tudo, zerar as unidades de medida nas folhas da hierarquia cruzada
+                    for (var c = cruzada.folhas.length; c--;)
+                        cruzada.folhas[c].inst[t].m = null;
+                    //
+                    var indicesCruzadas = this._propagarMedidasInstancias(t, base.folhas);
+                    // enquanto houverem folhas com mais de uma medida, inserir seus dados nas notas
+                    var notas = {};
+                    while (indicesCruzadas.length) {
+                        // remover a unidade de medida da folha da dimensão base
+                        var b = indicesCruzadas.pop();
+                        base.folhas[b].inst[t].m = null;
+                        // processar as unidades de medida cruzadas nas células
+                        for (var c = cruzada.folhas.length; c--;) {
+                            var folha = cruzada.folhas[c].inst[t];
+                            var m = folha.dados[b].m;
+                            folha.m = (folha.m || m);  // TODO: colocar o range aqui, caso haja mais de um valor
+                        }
+                        //
+                        // DEPOIS GERAR AS NOTAS BONITINHO. POR ENQUANTO SÓ JOGANDO PRA LINHA (PODE DAR CONFLITO) *******************************
+                        //
+                    }
+                    // subir as unidades de medida na hierarquia
+                    this.subirMedidas(t, cruzada, false);
+                    medidaCabecalho = this.subirMedidas(t, base, true);
+                }
+                // caso a variável esteja no cabeçalho, atribuir a unidade de medida que subiu a ela (mesmo que nula)
+                if (variavelNoCabecalho) {
+                    // identificar o campo que deve receber a medida a partir do multiplicador de valores da variável
+                    var campo = Math.floor(t * this.contagem.valoresTabela / variaveis.multiplicador) % variaveis.campos.length;
+                    variaveis.campos[campo].m.push(medidaCabecalho);
+                }
+            }
+        },
+
+        // sobe as medidas das folhas para cima na hierarquia, segundo as regras especificadas. se a unidade 
+        // de medida não for absorvida por nenhum campo na hierarquia, esta é retornada pela função
+        subirMedidas: function (tabela, raiz, transbordar) {
+            // define a função recursiva que sobe a medida
+            var passo = function (no, transbordar) {
+                var m = null;   // unidade de medida avaliada para o nó inicialmente nula
+                // se for folha, pega a unidade de medida da instância
+                if (!no.filhos)
+                    m = no.inst[tabela].m;
+                else {
+                    // senão, executa o procedimento recursivamente para cada filho.
+                    // verificar se este nó deve processar as medidas do filhos.
+                    var aceitaMedida = transbordar || (no.dimensao && no.dimensao.possuiMedida);
+                    if (!aceitaMedida) {
+                        // se não aceitar a medida dos elementos filho, apenas chamar o método ignorando o valor de retorno
+                        for (var i = 0; i < no.filhos.length; i++)
+                            passo(no.filhos[i], false);
+                    }
+                    else {
+                        // senão, devemos analisar variações nas unidades de medida
+                        var medidas = {};
+                        for (var i = 0; i < no.filhos.length; i++)
+                            medidas[passo(no.filhos[i], aceitaMedida) || ""] = true; // não descartar nulos
+                        // se o número de medidas for definida e exatamente 1, absorver a unidade de medida de cada filhos
+                        medidas = contarChaves(medidas);
+                        if (medidas.total === 1 && medidas.valor) {
+                            m = medidas.valor;
+                            for (var i = no.filhos.length; i--;) {
+                                var f = no.filhos[i];
+                                // a unidade de medida para a instância atual fica na última posição do array. anulá-la
+                                f.m[f.m.length - 1] = null;
+                            }
+                        }
+                    }
+                }
+                // empilha a unidade de medida, se a dimensão puder receber medidas
+                if (no.m)
+                    no.m.push(m);
+                // retorna a unidade obtida, ou nulo caso seja variável (pois ela sempre absorve a unidade)
+                return (no.dimensao && no.dimensao.tipo === tipoDimensao.variavel ? null : m);
+            };
+            // inicializa a recursão a partir da raíz
+            return passo(raiz, transbordar);
+        },
+
+        // cria o texto de unidade de medida para um campo de rótulo da tabela
+        gerarTextoMedida: function (referencia, indice) {
+            var medida = null;
+            var dimensao = referencia.dimensao;
+            var posicao = dimensao.posicao;
+
+            if (posicao != tipoPosicao.cabecalho) {
+                medida = (referencia.m && referencia.m.shift());
+            }
+            else {
+                // se a medida estiver no cabeçalho, ela não possui repetição por tabela como as das
+                // colunas e linhas.após o "shift", devemos reempilhar a medida no fim da lista
+                var medidas = referencia.campo.m;
+                if (medidas)
+                    medidas.push(medida = medidas.shift());
+            }
+
+            return (medida ? "<span class='rotulo-medida'> (" + medida + ")</span>" : "");
+        },
+
+        // insere uma nota sobre unidade de medida na tabela
+        // (************ NÃO ESTÁ SENDO USADO *********************)
+        gerarNotaMedida: function (tabela, tipo, dimensao, campo) {
+            var indice = "[" + tabela.notas.length + "]";
+            // gerar o texto da nota
+            var texto = indice + " ";
+            if (!tipo) {
+                // tipo = 0: unidades da dimensão ficam no periodo
+                texto += 'As unidades para "' + dimensao.rotulo + " - " + campo.nome + '" se encontram no ' + this.dimensaoPeriodo.rotulo;
+            }
+            else {
+                // unidades da dimensão ficam na nota
+                texto += 'Depois listar os periodos de cada dimensão'; // **************************************************
+                console.log(texto);
+            }
+            // definir os valores que ficarão no campo
+            campo.mapMedida.total = 0;  // preserva o mapeamento para os dados, mas sinalizando que a medida do rótulo não deve variar
+            //campo.refMedida = indice;
+            //
+            tabela.notas.push(texto);
+        },
+
+        // inicializa o vetor de valores na ordem espeficada pelo layout, sobrescrevendo o vetor antigo
+        preencherValores: function () {
+            var opcoes = this.opcoes;
+            var usaNivel = this.usaNivel;
+            var valores = this.valores = [];
+
+            var dados = opcoes.dados;
+
+            for (var i = 0, l = dados.length; i < l; i++) {
+                // percorre os códigos das dimensões acumulando os indices dos campos
+                // multiplicado pelos respectivos multiplicadores de dimensão. ao final,
+                // teremos o índice do dado na matriz completa de valores.
+                var dado = dados[i];
+                var descartado = false;
+                var indice = 0;
+
+                for (var atributo in dado) {
+                    if (atributo[0] === "D") {
+                        var dim = this.mapeamento[atributo];
+
+                        // se for um campo de dimensão territorial e o código de nível for necessário, concatenar
+                        // esse código ao da unidade para obter o mapeamento.
+                        var codigo = dado[atributo];
+
+                        if (dim.tipo >= tipoDimensao.territorio && usaNivel)
+                            codigo = dado.NC + "_" + codigo;
+
+                        // se o campo não estiver definido, a lista de valores possui um excesso de dados em relação
+                        // à seleção. é algo que só acontece quando a seleção é gerada para tabelas especiais, e indica
+                        // que o este valor deve ser descartado do resultado
+                        var campo = dim.mapa[codigo];
+
+                        if (!campo) {
+                            descartado = true;
+                            break;
+                        }
+
+                        indice += dim.multiplicador * campo.indice;
+                    }
+                }
+
+                // se o valor não foi descartado, inserir na posição correta da lista de valores
+                if (!descartado)
+                    valores[indice] = dado;
+            }
+        },
+
+        // processa uma hierarquia de dimensões, calculando spans e multiplicadores de índice para o vetor de valores
+        processarDimensao: function (acumulador, dimensoes, posicao) {
+            var span = 1;
+
+            for (var i = dimensoes.length; i--;) {
+                var dimensao = dimensoes[i];
+
+                // processa os campos
+                var campos = dimensao.campos;
+                var nCampos = campos.length;
+
+                dimensao.posicao = posicao;
+                dimensao.ordem = i;
+                dimensao.span = span;
+                dimensao.multiplicador = acumulador;
+
+                span *= nCampos;
+                acumulador *= nCampos;
+
+                // se for uma dimensão de territórios, devemos verificar se existem dados para mais de um nível
+                // (quando só existe um nível, não precisamos diferenciar as unidades dos campos)
+                var usaNivel = false;
+
+                if (dimensao.tipo >= tipoDimensao.territorio) {
+                    var j = campos.length - 1;
+
+                    while (j > 0 && campos[j].nivel === campos[j - 1].nivel)
+                        j--;
+
+                    this.usaNivel = usaNivel = (j > 0);
+                }
+
+                // gera o mapeamento para cada campo da dimensão
+                var mapa = {};
+
+                while (nCampos--) {
+                    var campo = campos[nCampos];
+                    var id = (usaNivel ? campo.nivel + "_" : "") + campo.id;
+                    campo.indice = nCampos;
+                    mapa[id] = campo;
+                }
+
+                dimensao.mapa = mapa;
+                this.mapeamento["D" + dimensao.indice + "C"] = dimensao;
+
+                // processa alguns casos importantes
+                switch (dimensao.tipo) {
+                    case tipoDimensao.variavel:
+                        this.dimensaoVariavel = dimensao;
+                        this.indiceVariavel = "D" + dimensao.indice + "C";
+                        break;
+
+                    case tipoDimensao.classificacao:
+                        if (dimensao.possuiMedida) {
+                            this.dimensaoClassificacaoComMedida = dimensao;
+                            this.indiceClassificacaoComMedida = "D" + dimensao.indice + "C";
+                        }
+                        break;
+
+                    case tipoDimensao.periodo:
+                        // se período, salva as referências
+                        this.dimensaoPeriodo = dimensao;
+                        this.indicePeriodo = "D" + dimensao.indice + "C";
+                        break;
+                }
+            }
+
+            return acumulador;
+        },
+
+        autoCabecalho: function () {
+            return controlador.aplicacoes.visao.autoCabecalho();
+        },
+
+        // processa as dimensões no layout e obtém algumas variáveis de interesse
+        processarDimensoes: function () {
+            this.preprocessarLayout();
+
+            this.dimensaoVariavel = null;
+            this.dimensaoClassificacaoComMedida = null;
+            this.dimensaoPeriodo = null;
+
+            this.indiceVariavel = null;
+            this.indiceClassificacaoComMedida = null;
+            this.indicePeriodo = null;
+
+            var layout = this.layout;
+            var contagem = this.contagem = {};
+
+            contagem.dimensoesLinha = layout.linhas.length;
+            contagem.dimensoesColuna = layout.colunas.length;
+            contagem.dimensoesCabecalho = layout.cabecalhos.length;
+
+            // processa as dimensões e armazena os contadores relevantes necessários
+            contagem.colunas = this.processarDimensao(1, layout.colunas, tipoPosicao.coluna);
+            contagem.valoresTabela = this.processarDimensao(contagem.colunas, layout.linhas, tipoPosicao.linha);
+            contagem.valoresTotal = this.processarDimensao(contagem.valoresTabela, layout.cabecalhos, tipoPosicao.cabecalho);
+
+            // deriva mais alguns contadores importantes
+            contagem.linhas = contagem.valoresTabela / contagem.colunas;
+            contagem.tabelas = contagem.valoresTotal / contagem.valoresTabela;
+        },
+
+        // coloca as dimensões que possuem apenas 1 campo no cabeçalho
+        preprocessarLayout: function () {
+            // cria uma copia do objeto layout
+            var layout = this.layout = $.extend({}, this.opcoes.layout);
+
+            layout.cabecalhos = layout.cabecalhos.slice();
+            layout.colunas = layout.colunas.slice();
+            layout.linhas = layout.linhas.slice();
+
+            // se requisitado, gerar cabeçalhos automaticamente
+            if (!this.autoCabecalho())
+                return;
+
+            var cabecalhos = layout.cabecalhos;
+            var listas = [layout.colunas, layout.linhas];
+
+            while (listas.length) {
+                var lista = listas.pop();
+
+                for (var i = lista.length; i--;) {
+                    var dimensao = lista.shift();
+
+                    if (dimensao.campos.length > 1) {
+                        lista.push(dimensao);
+                    }
+                    else {
+                        dimensao.posicao = tipoPosicao.cabecalho;
+                        cabecalhos.push(dimensao);
+                    }
+                }
+            }
+        },
+
+        _dimensoesEmOrdem: function () {
+            var layout = this.opcoes.layout;
+            return [].concat(layout.cabecalhos, layout.colunas, layout.linhas);
+        },
+
+        // atualiza o vetor de dados para o novo layout. os campos antigos são 
+        // reaproveitados, sendo apenas copiados para as dimensões do novo layout.
+        atualizarLayout: function (layout) {
+            var mapaCampos = {};
+            var dimensoes = this._dimensoesEmOrdem();
+
+            for (var i = dimensoes.length; i--;) {
+                var dimensao = dimensoes[i];
+                mapaCampos[dimensao.id] = dimensao.campos;
+            }
+
+            this.opcoes.layout = layout;
+            var dimensoes = this._dimensoesEmOrdem();
+
+            for (var i = dimensoes.length; i--;) {
+                var dimensao = dimensoes[i];
+                dimensao.campos = mapaCampos[dimensao.id];
+            }
+        },
+
+        inicializarModalGraficos: function () {
+            var that = this;
+            this.graficos = { lista: [] };
+
+            // cria o modal de gráficos e layout
+            criarModalGraficos.call(this);
+            this.modalLayout = criarModalLayout();
+
+            // cria a função a executar quando alterar o tipo de gráfico
+            $("#graph-tipo").change(function (e) {
+                var tipoGrafico = tiposGraficos[this.selectedIndex];
+                // no jQuery não tem como especificar toggle com boolean e duração, então vai assim mesmo
+                var exibeLegenda = (tipoGrafico.legenda && that.selecao.dimensoes.length > 1);
+                $("#graph-config .grupo-legenda")[exibeLegenda ? "show" : "hide"](400);
+            });
+
+            // evento para atualizar os gráficos quando mudar o estilo de exibição
+            $("#graph-botoes-estilo").click(".btn", function () {
+                // dá um timeout pra executar após o bootstrap processar a mudança de estado (meio gamby, mas tranks)
+                setTimeout(function () {
+                    that.atualizarGraficos();
+                }, 100);
+            });
+
+            // o evento de click no checkbox de largura automática deve alterar a habilitação do input
+            $("#graph-estilo-auto").click(function () {
+                $("#graph-estilo-largura").prop("disabled", $(this).prop("checked"));
+            });
+
+            // aplica as configurações de estilo do gráfico ao editar os campos de estilo
+            $('#menu-opcoes-graficos')
+                // enter em qualquer input atualiza os gráficos
+                .find("input").keydown(function (e) {
+                    if (e.which === 13)
+                        that.atualizarGraficos();
+                }).end()
+                // quando algum campo de entrada perder o foco, atualiza o gráfico
+                .find("input,select").change(function (e) {
+                    var isCompleta = (this.id == "graph-estilo-abreviar");
+                    that.atualizarGraficos(isCompleta);
+                }).end();
+
+            // processa erros nos campos numéricos durante a digitação
+            $('#graph-ctrl-wrapper input[type=text]')
+                .on("keyup", function (e) {
+                    // processa o valor numérico do campo
+                    var $el = $(this);
+                    var erro = !that.validarEstilo($el.attr("data-param"), $el.val());
+                    // atualiza a classe de erro
+                    $el.parent().toggleClass("has-error", erro);
+                });
+
+            // lança o procedimento de salvar gráficos ao clicar no botão de salvar todos em zip
+            $("#graph-btn-salvar").click(function () {
+                that.salvarGraficos();
+            });
+            //
+            $(".botoes-picker-angulo .btn").click(function () {
+                var isUp = $(this).hasClass("btn-up");
+                that.incrementarAnguloGrafico(isUp ? 1 : -1);
+            });
+        },
+
+        incrementarAnguloGrafico: function (passo) {
+            var delta = passo * 10;
+            var picker = this.pickerData;
+
+            picker.angulo = Math.max(0, Math.min(90, picker.angulo + delta));
+
+            atualizarPickerAngulo(picker);
+
+            this.atualizarGraficos();
+        },
+
+        salvarGraficos: function (elemento) {
+            // captura o formato no dropdown de formato
+            var formato = $("#graph-save-fmt :selected").val();
+
+            // processa os parâmetros
+            var grafico, usaZip;
+
+            if (elemento) {
+                // se foi passado um elemento diretamente, considera-se que é para salvar apenas 1 gráfico sem ZIP
+                grafico = element;
+                usaZip = false;
+            }
+            else {
+                // senão, exporta todos os gráficos em zip
+                grafico = $("#graph-container");
+                usaZip = true;
+            }
+
+            // exporta o gráfico
+            grafico.exportaSVG(formato, usaZip, function (sucesso) {
+                if (!sucesso)
+                    alert("Erro salvando gráficos. Tente atualizar seu navegador.");
+            });
+        },
+
+        gerarConfiguracoesGrafico: function () {
+            var selecao = this.selecao = this.extrairSelecao();
+
+            // opcoes do gráfico
+            $("#graph-tipo").prop("selectedIndex", 0);
+            preencherDropdown($("#graph-eixo"), selecao.dimensoes, "nome", 0);
+
+            // se o numero de dimensões for menor que 2, exibir o segundo dropdown e preencher, senão, ocultá-lo
+            if (selecao.dimensoes.length < 2)
+                $("#modal-graficos").find(".grupo-legenda").hide();
+            else {
+                $("#modal-graficos").find(".grupo-legenda").show();
+                preencherDropdown($("#graph-legenda"), selecao.dimensoes, "nome", 1);
+            }
+        },
+
+        atualizarGraficos: function (completa) {
+            completa = (completa === true);
+
+            var that = this;
+            if (that.processarEstiloGrafico(true)) {
+                if (completa) {
+                    that.recriarGraficos();
+                }
+                else {
+                    $("#graph-container > .wrapper-grafico > div").each(function (i, el) {
+                        atualizarGrafico($(el), that.graficos);
+                    });
+                }
+                // retorna true pra fechar o dropdown
+                return true;
+            }
+            else {
+                // retorna false pra manter o dropdown aberto
+                return false;
+            }
+        },
+
+        processarEstiloGrafico: function (lancarErro) {
+            // captura as configurações de estilo do gráfico
+            var opcoes = this.graficos;
+            var grafico = opcoes.tipo;
+
+            // estilos grafico
+            var $legenda = $("#graph-estilo-legenda");
+
+            opcoes.legenda = (opcoes.usaLegenda && $legenda.prop("checked"));
+            opcoes.abreviar = $("#graph-estilo-abreviar").prop("checked");
+            opcoes.estilo = (grafico.estilos.length < 2 ? "normal" : $("#graph-botoes-estilo .active").attr("data-estilo"));
+            opcoes.area = (!grafico.area ? false : $("#graph-estilo-area").prop("checked"));
+            opcoes.angulo = $("#graph-picker-angulo").attr("data-angulo");
+            opcoes.altura = $("#graph-estilo-altura").val();
+
+            // largura (checando a opção de largura automática)
+            var isLarguraAutomatica = $("#graph-estilo-auto").prop("checked");
+
+            opcoes.largura = (isLarguraAutomatica ? "auto" : $("#graph-estilo-largura").val());
+
+            // processa a validade dos dados
+            var valido = (this.validarEstilo("angulo")
+                && this.validarEstilo("altura")
+                && this.validarEstilo("largura"));
+
+            // se estiver válido, já atualiza a classe "fix" do modal
+            if (valido)
+                $("#modal-graficos").toggleClass("fix", opcoes.largura !== "auto");
+            else if (lancarErro)
+                // senão, caso seja para lançar o erro, o faz
+                alert("ta bugado");
+
+            // retorna se os dados estavam válidos
+            return valido;
+        },
+
+        processarRedimensionamento: function () {
+            if (this.modalLayout.is(":visible"))
+                controlador.aplicacao("visao").verificarTamanhoLayout()
+
+            // atualiza os gráficos, se houverem
+            /*
+            var grafico;
+            for (var i = this.graficos.lista.length; i--;) {
+                if ((grafico = this.graficos.lista[i]) && grafico.update)
+                    grafico.update();
+            }
+            */
+            //atualizarGrafico(grafico, this.graficos);
+            if (this.graficos.lista.length)
+                this.atualizarGraficos();
+
+            // atualiza os retângulos de seleção, se houverem
+            if (this.editor && this.editor.sel1)
+                selecionarIntervalo(this);
+        },
+
+        // método privado que altera o botão do dropdown de ordenação
+        iconeDropdownOrdenacao: function (sort) {
+            var clss = iconesOrdenar[sort || ""];
+            var dropdown = $("#resultado-ord");
+
+            // TÁ MEIO FEIO, MAS TO CORRENDO PRA ENTRAR DE FÉRIAS :o
+            var texto = (!sort ? "&nbsp; Ordenar" : dropdown.find("[data-opcao=" + sort + "] span").html());
+
+            dropdown
+                .toggleClass("active", !!sort)
+                .find(".dropdown-toggle")
+                .find("i").prop("className", clss).end()
+                .find("span").html(texto);
+        },
+
+        // método que ordena a visão com base no sentido ("asc","desc","remove") e no indice da coluna (exceto quando "remove")
+        __ordenar: function (opcao, coluna) {
+            var that = this;
+
+            if (coluna < 0 || coluna >= this.contagem.colunas)
+                return;
+
+            // remove os números e as classes da coluna anteriormente usados na ordenação (se existirem)
+            this._removerNumerosOrdenacao();
+            this.elemento
+                .find("td.ord,th.ord")
+                .removeAttr("data-ord")
+                .removeClass("ord");
+
+            // se for para remover a ordenação, a ordenação deve ser ascendente (que ocorrerá sobre o indice base)
+            this.ordenacao = opcao;
+            var asc = (opcao != "desc");
+
+            // prepara a ordenação montando um array com o ponteiro das linhas base e o valor a ser ordenado
+            var tabelas = this.modelo.raizTabela.folhas;
+            var linhas = this.modelo.raizLinha.folhas;
+            var nLinhas = linhas.length;
+            var grupos = {};
+
+            if (opcao === "remove") {
+                this.iconeDropdownOrdenacao();
+
+                // remove a ordenação, voltando ao estado inicial do layout.
+                for (var i = tabelas.length; i--;) {
+                    // cria um subgrupo para cada tabela 
+                    var grupo = grupos[i] = [];
+                    // ordenar as linhas pelo índice do campo
+                    for (var j = 0; j < nLinhas; j++) {
+                        var linha = tabelas[i].linhas[j];
+                        grupo.push({ "l": linha, "i": j, "d": linha.rotulo.indice });
+                    }
+                }
+            }
+            else {
+                this.iconeDropdownOrdenacao(opcao + "-sort");
+
+                // para cada tabela, processa os dados das linhas
+                for (var i = tabelas.length; i--;) {
+                    // cria o índice base para usar nos grupos desta tabela
+                    var indiceBase = (i * nLinhas);
+
+                    // para cada linha desta tabela
+                    for (var j = 0; j < tabelas[i].linhas.length; j++) {
+                        var linha = tabelas[i].linhas[j];
+
+                        // calcula o índice do subgrupo, que seria o índice base mais o indice do pai desta linha (zero se houver apenas 1 nível)
+                        var pai = linha.rotulo.pai;
+                        var indice = indiceBase + (pai.tipo === tipoDado.rotulo ? pai.indice : 0);
+
+                        // pega o grupo de ordenação no qual esta linha se encontra, ou o cria se não existir
+                        var grupo = (grupos[indice] || (grupos[indice] = []));
+
+                        // insere esta linha no grupo, selecionando o dado para ser usado na ordenação
+                        var celula = linha.dados[coluna];
+                        grupo.push({ "l": linha, "i": grupo.length, "d": parseFloat(celula.r.V) || 0 });
+
+                        // insere a classe para indicar que esse elemento guia a ordenação
+                        celula.h.addClass("ord");
+                    }
+                }
+
+                // marca o header referente à coluna ordenada
+                this.elemento.find("table.visao > thead > tr:last-child > th:eq(" + coluna + ")").addClass("ord");
+            }
+
+            // define a funcao de comparação para ordenação de campos. 
+            var comparacao = function (a, b) {
+                // se os valores forem iguais, ordena pelos indices
+                var d = (a.d - b.d || a.i - b.i);
+                return (asc ? d : -d);
+            };
+
+            // define a função que aplica a ordenação a um grupo de linhas
+            var aplicarOrdenacao = function (grupo) {
+                // transfere as referências para as linhas no HTML e o numero de ordem no html
+                for (var i = grupo.length; i--;) {
+                    var origem = grupo[i];
+                    var destino = grupo[origem.i];
+
+                    destino.h = origem.l.html;
+                    destino.o = origem.l.ordem;
+                    destino.t = destino.l.html
+                        .children("th.dados")
+                        .map(function () {
+                            return $(this).html();
+                        });
+                }
+
+                // consolida a ordenação atualizando as referências e os textos no html
+                var subdividirColuna = (that.subdivisaoColunas > 1);
+
+                for (var i = grupo.length; i--;) {
+                    var linha = grupo[i];
+                    // atualiza o html e o número de ordem a partir dos valores salvos anteriormente
+                    var texto = linha.t;
+                    linha.l.html = linha.h;
+                    linha.l.ordem = linha.o;
+                    linha = linha.l;
+
+                    // atualiza a referência cruzada na tabela
+                    linha.tabela.linhas[linha.ordem] = linha;
+
+                    // atualiza o texto e a referência cruzada do ultimo rotulo da linha de dados
+                    linha.html.children("th.dados").each(function (j, el) {
+                        $(this).data(CAMPO_REFERENCIA, linha)
+                            .attr("data-ord", i + 1)
+                            .html(texto[j])
+                    });
+
+                    // atualiza as referências para os htmls das células, e preenche seus textos
+                    var $td = linha.html.children("td");
+                    var indice = 0;
+
+                    for (var j = 0; j < linha.dados.length; j++) {
+                        var celula = linha.dados[j];
+
+                        celula.h = $($td[indice++]);
+
+                        if (subdividirColuna)
+                            indice++;
+
+                        that._preencherDadosCelula(celula, subdividirColuna);
+                    }
+                }
+            };
+
+            // para cada sublista, ordenar com base no elemento criado
+            for (var key in grupos) {
+                var grupo = grupos[key];
+                grupo.sort(comparacao);
+                aplicarOrdenacao(grupo);
+            }
+
+            // se foi uma ordenação, incluir os números
+            if (opcao !== "remove")
+                this._inserirNumerosOrdenacao();
+
+            //
+            return this.elemento;
+        },
+
+        // remove os números de ranking das tabelas exibidas (altas gamby)
+        _removerNumerosOrdenacao: function () {
+            // remover eventuais classes de hover que estiverem ativas
+            this.elemento.find(".hover").removeClass("hover");
+
+            // remover todas as células referentes à posição da ordenação
+            this.elemento.find(".ord-pos").remove();
+
+            // para todos os cabeçalhos cujo span estava ajustado pela coluna de posição, decrementar o span
+            this.elemento
+                .find(".th-ord")
+                .removeClass("th-ord")
+                .each(function () {
+                    var el = this;
+                    if (el.tagName == "COL")
+                        el.span = Number(el.span) - 1;
+                    else if (!$(el).is(".cabecalho.linha"))
+                        el.colSpan = Number(el.colSpan) - 1;
+                });
+        },
+
+        // insere os números de ranking nas tabelas exibidas (altas gamby)
+        _inserirNumerosOrdenacao: function () {
+            // encontrar todos os elementos influenciados pela inclusão da coluna de ordenação, e incrementar seu span
+            this.elemento
+                .find(".table.visao")
+                .find("col:first,th.titulo,.cabecalho.tabela,.cab-ult:first,tfoot th")
+                .addClass("th-ord")
+                .each(function () {
+                    var el = this;
+                    if (el.tagName == "COL")
+                        el.span = Number(el.span) + 1;
+                    else if (!$(el).is(".cabecalho.linha"))
+                        el.colSpan = Number(el.colSpan) + 1;
+                    else {
+                        // caso seja um cabeçalho de linha, inserir antes (à esquerda) o rótulo "#" indicando a coluna de ranking
+                        $(el).clone(true).addClass("ord-pos").prop("colSpan", 1).html("#").insertBefore(el);
+                    }
+                });
+
+            // encontrar os rótulos dos dados das linhas
+            var celulas = this.elemento.find(".table.visao tbody tr").find("th.dados:first");
+
+            // para cada rótulo, inserir antes (à esquerda) a posição no ranking para esta linha
+            celulas.each(function () {
+                var celula = this;
+                var ranking = celula.getAttribute("data-ord");
+                $(celula).clone(true).addClass("ord-pos").html(ranking).insertBefore(celula);
+            });
+        },
+
+        // reinicia o estado do objeto de edição 
+        __reiniciarEditor: function () {
+            // remove as classes do container
+            this.elemento.removeClass("ordenar").addClass("selecionar");
+            // verifica a existência do elemento de estado de editor ou do modelo de dados
+            if (!this.editor) {
+                // se não houver o elemento de estado do editor, criá-lo
+                this.editor = {};
+            }
+            else {
+                // verifica em qual modo o editor estava, e reinicia com base disso
+                if (this.editor.estado === estadoEditor.selecionar)
+                    this.__removerSelecao();
+                else
+                    if (this.editor.estado === estadoEditor.ordenar)
+                        ; // modo ordenação. não precisa fazer nada
+                    else
+                        ; // faz nada também 
+            }
+            // reinicia os atributos de controle da edição
+            this.editor = {
+                estado: estadoEditor.selecionar,
+                sel1: null,
+                sel2: null
+            }
+            return this.elemento;
+        },
+
+        // iniciar o modo de ordenação
+        iniciarOrdenacao: function (modo) {
+            // zerar o estado do editor
+            this.__reiniciarEditor();
+            // só é possível ordenar se houver mais de uma linha
+            if (this.contagem.linhas > 1) {
+                // se só houver uma coluna ou for para remover ordenação, executar imediatamente
+                if (this.contagem.colunas === 1 || modo === "remove")
+                    this.__ordenar(modo, 0);
+                else {
+                    // senão, devemos aguardar a definição da coluna pelo usuário
+                    this.elemento.removeClass("selecionar").addClass("ordenar");
+                    this.editor.estado = estadoEditor.ordenar;
+                    this.editor.modo = modo;
+                }
+            }
+            return true;
+        },
+
+        // iniciar o modo de seleção de dados
+        selecionarCelula: function (elemento) {
+            if (elemento.is("th")) {
+                // se for cabeçalho, selecionar por cabeçalho
+                selecionarPorCabecalho(this, elemento);
+            }
+            else if (elemento.is("td")) {
+                // se for uma celula de dados
+                if (elemento.hasClass("sel")) {
+                    // se já estiver selecionada, remover a seleção
+                    this.__removerSelecao();
+                }
+                else {
+                    if (!this.editor.sel1) {
+                        // se for o primeiro elemento, marcar como primeira âncora do retângulo de seleção
+                        this.editor.sel1 = pegarCoordenada(elemento);
+                        this.editor.sel2 = pegarCoordenada(elemento);
+                    }
+                    else {
+                        // senão, atualizar o retângulo com base nas coordenadas
+                        var elCoord = pegarCoordenada(elemento);
+                        var coord1 = this.editor.sel1;
+                        var coord2 = (this.editor.sel2 || (this.editor.sel2 = elCoord));    // se a coordenada 2 for indefinida, atribuir elCoord
+                        // calcular o novo retângulo com base no máximo e mínimo
+                        if (coord1 && coord2 && elCoord) {
+                            coord1.x = Math.min(coord1.x, elCoord.x);
+                            coord2.x = Math.max(coord2.x, elCoord.x);
+                            //
+                            coord1.y = Math.min(coord1.y, elCoord.y);
+                            coord2.y = Math.max(coord2.y, elCoord.y);
+                        }
+                    }
+                    selecionarIntervalo(this);
+                }
+            }
+        },
+
+        // remove todas as seleções atuais da visão
+        __removerSelecao: function () {
+            // remove as âncoras de seleção
+            this.editor.sel1 = this.editor.sel2 = null;
+            // remove todos os retângulos de seleção
+            for (var i = this.modelo.tabelas.length; i--;) {
+                var selecao = this.modelo.tabelas[i].selecao;
+                if (selecao)
+                    selecao.remover();
+            }
+            //
+            return this.elemento;
+        },
+
+        // seleciona todas as células da visão e retorna os elementos
+        __selecionarTudo: function () {
+            // reinicia qualquer estado intermediário
+            this.__reiniciarEditor();
+            // selecionar tudo é o mesmo que selecionar a raiz das colunas
+            // DEPOIS FAZER ISSO DIREITO USANDO O MODELO INTERNO *************************************************
+            return selecionarPorCabecalho(this, $(".table.visao th:eq(0)"));
+        },
+
+        // extrai os dados de uma seleção
+        extrairSelecao: function () {
+            var that = this;
+            // pega todas as células de dados
+            var $celulas = this.elemento.find("table > tbody > tr > td.sel");
+            // se não houver nenhuma celula selecionada, selecionar todas
+            if ($celulas.length === 0) {
+                this.__selecionarTudo();
+                $celulas = this.elemento.find("table > tbody > tr > td.sel");
+            }
+            // define a função que processa uma hierarquia de dimensões
+            var dimensoes = {};
+            var nDimensoes = 0;
+            var processaDimensao = function (no) {
+                if (!no || no.tipo <= tipoDado.raiz) return;
+                // pega a referencia de dimensão, ou a cria se não existir
+                var dimensao = no.dimensao;
+                var refDimensao = dimensoes[dimensao.indice];
+                if (!refDimensao) {
+                    nDimensoes++;
+                    refDimensao = dimensoes[dimensao.indice] = {
+                        "dimensao": dimensao,
+                        "campos": {},
+                        "mapaCampos": {},
+                        "nCampos": 0,
+                        "titulo": false
+                    };
+                }
+                // se não existir referência de campo, a cria e atribui um numero de sequencia
+                var campo = no.campo;
+                if (!refDimensao.campos[campo.indice]) {
+                    refDimensao.mapaCampos[campo.indice] = refDimensao.nCampos++;
+                    refDimensao.campos[campo.indice] = campo;
+                }
+                // sobe na hierarquia
+                processaDimensao(no.pai);
+            }
+            // para cada célula, extrai a referência para as dimensões e processa as coordenadas de dados pela função definida acima
+            var nCelulas = $celulas.length;
+            var dados = [];
+
+            for (var i = 0; i < nCelulas; i++) {
+                var ref = $($celulas[i]).data(CAMPO_REFERENCIA);
+                processaDimensao(ref.x.rotulo);
+                processaDimensao(ref.y.rotulo);
+                processaDimensao(ref.z);
+                dados.push(ref);
+            }
+
+            // processa as dimensões, criando o indice sequencial de saída ou sinalizando como titulo da seleção as que só possuírem 1 campo 
+            // (como as mesmas dimensões se aplicam a todos os dados, possuir só 1 campo significa que este campo contém todos os dados)
+            var titulo = [this.layout.titulo];
+            var mapaDimensoes = {};
+            var sequencia = 0;
+            for (var key in dimensoes) {
+                var refDimensao = dimensoes[key];
+                if (refDimensao.nCampos !== 1) {
+                    // se for uma dimensão variável, criar um numero de sequencia
+                    mapaDimensoes[key] = sequencia++;
+                }
+                else {
+                    // senão, é uma dimensão constante (se aplica a todos os valores). coloca como título da seleção
+                    refDimensao.titulo = true;
+                    // usa "for" porque, embora só haja 1 elemento, o "Object.keys" não funciona em browsers antigos
+                    for (var subKey in refDimensao.campos) {
+                        var texto = refDimensao.campos[subKey].nome;
+
+                        if (refDimensao.dimensao.rotulo)
+                            texto = refDimensao.dimensao.rotulo + " = " + texto;
+
+                        titulo.push(texto);
+                    }
+                }
+            }
+            // define a função que acumula as coordenadas de um valor a partir de uma hieraquia de dimensão
+            var processaCoordenadas = function (coords, no) {
+                if (!no || no.tipo !== tipoDado.rotulo) return;
+                //
+                var refDimensao = dimensoes[no.dimensao.indice];
+                if (!refDimensao.dimensao.titulo)
+                    coords[mapaDimensoes[refDimensao.dimensao.indice]] = refDimensao.mapaCampos[no.campo.indice];
+                //
+                processaCoordenadas(coords, no.pai);
+            }
+            // monta o vetor de dados, processando as coordenadas da hierarquia de dimensões
+            for (var i = 0; i < nCelulas; i++) {
+                var ref = dados[i];
+                var coords = [];
+                processaCoordenadas(coords, ref.x.rotulo);
+                processaCoordenadas(coords, ref.y.rotulo);
+                processaCoordenadas(coords, ref.z);
+                dados[i] = { "r": ref.r, "c": coords, "m": ref.m };
+            }
+            // consolida as dimensões no vetor de saída, na ordem correta
+            var saidaDimensoes = [];
+            for (var key in dimensoes) {
+                var refDimensao = dimensoes[key];
+                refDimensao.nome = refDimensao.dimensao.rotulo;
+                // consolida os campos desta dimensão, na ordem correta
+                var saidaCampos = [];
+                for (var subKey in refDimensao.campos)
+                    saidaCampos[refDimensao.mapaCampos[subKey]] = refDimensao.campos[subKey].nome;
+                refDimensao.campos = saidaCampos;
+                // elimina os campos não mais necessários
+                delete refDimensao.dimensao;
+                delete refDimensao.nCampos;
+                delete refDimensao.mapaCampos;
+                delete refDimensao.titulo;
+                // insere na posição correta no vetor de saída
+                saidaDimensoes[mapaDimensoes[key]] = refDimensao;
+            }
+            // retorna o objeto contendo os dados da seleção
+            return {
+                "titulo": titulo,
+                "dimensoes": saidaDimensoes,
+                "valores": dados
+            };
+        },
+
+        recriarGraficos: function () {
+            removerGraficos();
+            this.graficos = { lista: [] };
+            this.criarGraficos();
+        },
+
+        criarGraficos: function () {
+            // captura o estado do editor
+            var that = this;
+            var selecao = this.selecao;
+            var tipoGrafico = tiposGraficos[$("#graph-tipo ")[0].selectedIndex];
+            var nEstilos = tipoGrafico.estilos.length;
+            var legenda = (tipoGrafico.legenda ? $("#graph-check-legenda").prop("checked") : false);
+            //
+            this.graficos.tipo = tipoGrafico;
+            this.graficos.usaLegenda = (!tipoGrafico.legenda || legenda);
+
+            // obtém as dimensões definidas pelo usuário
+            var dimensoes = [$("#graph-eixo")[0].selectedIndex];
+            if (legenda) {
+                dimensoes.push($("#graph-legenda")[0].selectedIndex);
+                if (dimensoes[0] === dimensoes[1])
+                    return alert("As dimensões selecionadas devem ser diferentes!");
+            }
+
+            // verifica se o número de dimensões é válida
+            var nDimensoesDados = selecao.dimensoes.length;
+            var nDimensoesGrafico = dimensoes.length;
+
+            if (nDimensoesGrafico > nDimensoesDados)
+                return alert("Configuração de gráfico inválida.");
+
+            // alterna o modal para o modo de visualização dos gráficos
+            var $modal = $("#modal-graficos").removeClass("configurar");
+
+            // preparar a exibição dos gráficos, verificando se deve esperar a transição
+            if (!$.support.transition)
+                // se não houverem transições por CSS, chamar imediatamente
+                prepararGraficos();
+            else {
+                // caso contrário, espera terminar a transição para preparar os gráficos
+                $modal.one('bsTransitionEnd', function () {
+                    if (!$modal.hasClass("configurar")) // checa o modo, pra garantir que o usuário não voltou antes de terminar a transição
+                        prepararGraficos();
+                })
+                    .emulateTransitionEnd(400);
+            }
+            // para os dados dos gráficos e os exibe
+            function prepararGraficos() {
+                $("#modal-graficos").addClass("visualizar");
+
+                // processar as opções de configuração para o gráfico selecionado
+
+                // cria os botões de estilo a partir da lista
+
+                if (!legenda) {
+                    $("#graph-botoes-estilo").empty();
+                }
+                else {
+                    // ISSO NÃO DEVIA FICAR AQUI, MAS UM DIA VOU REFORMULAR ESSA INTERFACE INTEIRA
+                    var templateBotaoEstilo = "".concat(
+                        '<label class="btn btn-default" data-estilo="${estilo}">',
+                        '<input type="radio" />',
+                        '<i class="${icone}"></i>',
+                        '</label>'
+                    );
+
+                    var botoesEstilos = {
+                        "normal": { nome: "Normal", icone: "sidraicon sidraicon-graph" },
+                        "pilha": { nome: "Empilhado", icone: "sidraicon sidraicon-graph-stack" },
+                        "estender": { nome: "Estendido", icone: "sidraicon sidraicon-graph-expand" }
+                    };
+
+                    var botoes = $.map(tipoGrafico.estilos, function (estilo, indice) {
+                        var data = botoesEstilos[estilo];
+                        return $.sidra.tmpl(templateBotaoEstilo, {
+                            estilo: estilo,
+                            icone: data.icone,
+                            nome: data.nome
+                        }).toggleClass("active", indice == 0);
+                    });
+
+                    $("#graph-botoes-estilo").empty().append(botoes);
+                }
+
+                // visibilidade do campo de checkbox de legendas
+                $("#graph-estilo-legenda")
+                    .parent()
+                    .toggleClass("hidden", tipoGrafico.legenda && !legenda);
+
+                // visibilidade do campo de checkbox de area
+                $("#graph-estilo-area")
+                    .parent()
+                    .toggleClass("hidden", !tipoGrafico.area || !legenda);
+
+                // visibilidade do campo de ângulo de label
+                $("#graph-angulo")
+                    .toggleClass("hidden", !tipoGrafico.angulo);
+
+                // lê as configurações (nem tudo foi reinicializado, pra preservar as seleções antigas do usuário)
+                that.processarEstiloGrafico();
+
+                // será gerado um gráfico para o cruzamento de cada campos nas dimensões não selecionadas. determinar quais são estas
+                var dimensoesExternas = [];
+                for (var i = 0; i < nDimensoesDados; i++)
+                    if ($.inArray(i, dimensoes) < 0)
+                        dimensoesExternas.push(i);
+
+                var nDimensoesExternas = dimensoesExternas.length;
+
+                // gerar um gráfico para cada combinação de dimensões externas
+                var graficos = [];
+                var mapaGraficos = {};
+                for (var i = 0; i < selecao.valores.length; i++) {
+                    var valor = selecao.valores[i];
+                    // pega o ID desta combinação de dimensoes (ID de grafico)
+                    var id = [];
+                    for (var j = 0; j < nDimensoesExternas; j++)
+                        id.push(valor.c[dimensoesExternas[j]]);
+                    var chaveID = id.join();
+                    // insere o dado no grafico correto, o criando se ainda não existir
+                    var grafico = mapaGraficos[chaveID];
+                    if (!grafico) {
+                        grafico = mapaGraficos[chaveID] = { "id": id, "valores": [] };
+                        graficos.push(grafico);
+                    }
+                    grafico.valores.push(valor);
+                }
+
+                // adapta os dados para o formato esperado pelo NVD3 e cria os graficos
+                mapaGraficos = null;
+
+                //
+                var indiceEixo = dimensoes[0];
+                var dimensaoEixo = selecao.dimensoes[indiceEixo];
+                var camposEixo = dimensaoEixo.campos;
+                var rotulos = camposEixo;
+                var indiceSerie = (legenda ? dimensoes[1] : -1);
+                var dimensaoSerie = (legenda ? selecao.dimensoes[indiceSerie] : null);
+
+                // se for para abreviar os rótulos, tentar fazer isso
+                if (that.graficos.abreviar) {
+                    var tamanhoMinimo = 8;
+                    var tamanhoMaximo = 15; // até 18 chars com reticências
+
+                    var rotulos = rotulos.slice();
+
+                    var diferenciador = Math.max(tamanhoMinimo, Math.min(tamanhoMaximo, TitleCompressor.differentiator(camposEixo)));
+
+                    for (var i = rotulos.length; i--;) {
+                        var campo = rotulos[i];
+                        if (campo.length > diferenciador + 3)
+                            rotulos[i] = campo.slice(0, diferenciador) + "...";
+                    }
+                }
+
+                // gera o subtitulo do conjunto de gráficos
+                var subtitulo = [];
+                subtitulo.push(dimensaoEixo.nome);
+
+                if (dimensaoSerie)
+                    subtitulo.push(dimensaoSerie.nome);
+
+                subtitulo = subtitulo.join(" x ");
+
+                // insere o título e subtítulo dos gráficos no container
+                var titulos = $.map(selecao.titulo, function (titulo, i) {
+                    var id = "titulo-graficos-" + i;
+                    return "<h3 id='" + id + "' class='cmd-toggle s-elipse titulo-graficos' data-toggle='s-elipse' data-target='#" + id + "'>" + titulo + "</h3>";
+                });
+
+                var $container = $("#graph-container");
+                $container.append(titulos.join(""));
+                $container.append("<br /><h4>" + subtitulo + "</h4>");
+
+                var isGraficoSetor = (tipoGrafico.graph === "pieChart");
+
+                // processar as propriedades dos gráficos
+                var nGraficos = graficos.length;
+                for (var i = 0; i < nGraficos; i++) {
+                    var grafico = graficos[i];
+                    // gera o nome do gráfico a partir das dimensões internas 
+                    var nome = [];
+
+                    // inclui as dimensões externas
+                    for (var j = 0; j < nDimensoesExternas; j++) {
+                        var dimensao = selecao.dimensoes[dimensoesExternas[j]];
+                        nome.push(dimensao.nome + " - " + dimensao.campos[grafico.id[j]]);
+                    }
+                    nome = nome.join("<br/>");
+
+                    // separa os dados em series conforme para cada campo da dimensão na legenda (usa um campo nulo se for 1 dimensão)
+                    // por enquanto são só 1 ou 2 dimensões, então essa é uma forma simples de lidar com as duas formas
+                    var campos = (legenda ? selecao.dimensoes[indiceSerie].campos : [null]);
+
+                    // cria as séries inicialmente zeradas (pra não ter entradas indefinidas ou nulas)
+                    var series = [];
+                    for (var j = 0; j < campos.length; j++) {
+                        var campo = campos[j];
+                        series[j] = { key: (campo || "0") };
+                        var values = series[j].values = [];
+                        // inicializa todos os valores com zero, pra evitar buracos ao forçar "indice = x" (comentado abaixo)
+                        for (var x = camposEixo.length; x--;)
+                            values[x] = { "x": (tipoGrafico.ticks ? x : camposEixo[x]), "y": 0, "m": "" };
+                    }
+
+                    // percorre a lista de valores no grafico e os insere na serie correta
+                    var pos, decimais = 0; // (faz uma contagem de casas decimais meio gamby, porque a gente deve mudar a NVD3 um dia... espero... rsrs)
+                    for (var j = 0; j < grafico.valores.length; j++) {
+                        var valor = grafico.valores[j];
+                        // verifica o número de casas decimais (gamby, já falei)
+                        var texto = valor.r.V;
+                        if (texto && (pos = texto.indexOf(".")) >= 0)
+                            decimais = Math.max(decimais, texto.length - pos - 1);
+
+                        // se não usar legenda, só temos uma série; senão, pegamos a série certa
+                        var serie = series[!legenda ? 0 : valor.c[indiceSerie]];
+
+                        // tive que forçar "x = indice" porque o nvd3 tava dando erro nos gráficos stacked quando a ordem
+                        // dos elementos era diferente da ordem de x. provavelmente ele faz uma iteração simples pra gerar
+                        // os valores acumulados, ignorando o campo do label.
+                        var x = valor.c[indiceEixo];
+                        var value = serie.values[x];
+                        // valor do ponto
+                        value.y = (parseFloat(texto) || 0);
+                        value.v = value.y;
+                        // unidade de medida
+                        value.m = (valor.m) || "";
+                        // identificador de serie
+                        value.s = (legenda && serie.key) || "";
+                        // texto de legenda
+                        value.l = camposEixo[x];
+                        // texto do campo
+                        value.t = texto;
+                    }
+
+                    // o objeto de gráfico não é mais relevante. eliminá-lo
+                    grafico.valores = null;
+
+                    // se for grafico de setor, enviar apenas o vetor de dados (o formato é diferente nesse caso)
+                    if (isGraficoSetor)
+                        series = series[0].values;
+
+                    // gerar o gráfico
+                    desenharGrafico({
+                        "titulo": nome,
+                        "decimais": decimais,
+                        "ticks": rotulos,
+                        "series": series,
+                        "config": that.graficos
+                    });
+                }
+            }
+        },
+
+        validarEstilo: function (nome, valor) {
+            var valor = (typeof valor !== "undefined" ? valor : this.graficos[nome]);
+            switch (nome) {
+                case "angulo":
+                    return (valor !== "" && !isNaN(valor) && valor >= 0 && valor <= 90);
+                case "altura":
+                    return (valor !== "" && !isNaN(valor) && valor >= 0 && valor < 10000);
+                case "largura":
+                    return (valor === "auto" || (valor !== "" && !isNaN(valor) && valor >= 0 && valor < 10000));
+            }
+            return false;
+        }
+    });
+
+    // **************************************************************
+
+    var tamanhoFonte = 12;
+    var margemFonte = 10;
+
+    var templateFonteGrafico = '<text x="50%" y="100%" dy="-${margem}px" font-family="Verdana" font-size="${tamanho}px" text-anchor="middle" alignment-baseline="central">${texto}</text>'
+
+    function retornaArg1(e) { return e; }
+
+    function retornaArg2(e, i) { return i; }
+
+    var chartStyleMap = {
+        "normal": "nostack",
+        "pilha": "stack",
+        "estender": "expand"
+    };
+
+    var fmtGrafico;
+
+
+    function atualizarGrafico($container, estilo) {
+        var chart = $container.data("chart");
+
+        // dimensões do gráfico
+        $container.css("width", estilo.largura);
+        $container.css("height", estilo.altura);
+
+        // exibição de area
+        if (estilo.tipo.area && chart.showArea)
+            chart.showArea(estilo.area);
+
+        // processa empilhamento, se possivel
+        if (estilo.tipo.estilos.length > 1) {
+            if (chart.style) {
+                // estilo acessado pelo metodo "style"
+                chart.style(chartStyleMap[estilo.estilo]);
+            }
+            else {
+                // estilo acessado por métodos diretos (normal ou pilha só)
+                chart.stacked(estilo.estilo === "pilha");
+            }
+        }
+
+        // angulo dos ticks
+        if (chart.xAxis)
+            chart.xAxis.rotateLabels(-estilo.angulo || 0);
+
+        // processa a visibilidade do campo de legenda
+        if (chart.showLegend)
+            chart.showLegend(estilo.legenda)
+                .legend.align(false);
+
+        chart.update();
+
+        // reinicia as margens do gráfico usando um método customizado
+        var margens = {
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: tamanhoFonte
+        };
+
+        $.sidra.ajustarMargens(chart, margens);
+    }
+
+
+    function desenharGrafico(opcoes) {
+        // inicializar os helpers da NVD3
+        $.sidra.initD3();
+
+        // cria o gráfico
+        var fonte = obterFonteLimitada();
+
+        var htmlFonte = $.sidra.template(templateFonteGrafico, {
+            margem: margemFonte,
+            tamanho: tamanhoFonte,
+            texto: "Fonte: " + fonte
+        });
+
+        var ticks = opcoes.ticks;
+        var indice = opcoes.config.lista.push(null) - 1; // insere um objeto inicialmente nulo, e pega atribui seu indice
+
+        var $wrapper = $("<div class='wrapper-grafico'></div>")
+            .append(!opcoes.titulo ? "" : "<h5>" + opcoes.titulo + "</h5>")
+            .append($('<div id="grafico-' + (indice) + '"><svg>' + htmlFonte + '</svg></div>'))
+            .appendTo("#graph-container");
+
+        // verificar se existem dados agrupados para exibir a legenda
+        var tipoGrafico = opcoes.config.tipo;
+        var nomeGrafico = tipoGrafico.graph;
+        var graficoSetor = (nomeGrafico === "pieChart");
+        var legenda = (graficoSetor || opcoes.series.length > 1);
+
+        // cria o svg do gráfico
+        nv.addGraph(function () {
+            // cria o gráfico e coloca na lista
+            var chart = opcoes.config.lista[indice] = nv.models[nomeGrafico]()
+                .x(function (d) { return d.x })
+                .y(function (d) { return d.v })
+            //.legendPosition("top");
+
+            chart.tooltip.contentGenerator(montarTooltip);
+
+            // se esse componente tiver uma opcao pra visibilidade dos controles, escondê-los            
+            if (chart.showControls)
+                chart.showControls(false);
+
+            if (graficoSetor) {
+                // se for piechart
+                chart.labelsOutside(true);
+                // definir a função de formatação dos valores e tooltip
+                var decimais = (opcoes.decimais || 0);
+                fmtGrafico = function (d) {
+                    var v = (isNaN(d) ? d.value : d);
+                    return $.sidra.formatarNumero(v, decimais);
+                };
+                chart.labelType(fmtGrafico);
+            }
+            else {
+                // se não for piechart, definir o estilo dos ticks do eixo x, e também o formato do eixo y
+
+                // para gráficos de linha, exibir todos os ticks no eixo x (o padrão do nvd3 é esconder)
+                if (chart.reduceXTicks) {
+                    chart.reduceXTicks(false);
+                }
+                else if (nomeGrafico == "multiBarHorizontalChart") {
+                    //chart.showValues(true);
+                }
+                else {
+                    // não exibir os limites numéricos
+                    if (chart.xAxis.showMaxMin)
+                        chart.xAxis.showMaxMin(false);
+                    // força os ticks pela função "tickValues", se houver
+                    if (chart.xAxis.tickValues)
+                        chart.xAxis.tickValues($.map(opcoes.series[0].values, retornaArg2));
+                }
+
+                // configura o label dos ticks
+                if (tipoGrafico.ticks)
+                    chart.xAxis.tickFormat(function (d) { return ticks[d]; });
+
+                // formatação dos dados.
+                fmtGrafico = d3.format("," + (opcoes.decimais || "") + "f");
+                chart.yAxis.tickFormat(fmtGrafico);
+            }
+
+            // cria o svg do grafico
+            var id = "#grafico-" + indice;
+
+            d3.select(id + " > svg")
+                .datum(opcoes.series)
+                .call(chart);
+
+            // salva o gráfico no objeto
+            var $wrapper = $(id).data("chart", chart);
+
+            // chama a opcao de atualizar o gráfico utilizando timeout
+            atualizarGrafico($wrapper, opcoes.config);
+
+            // retorna o gráfico para o nvd3
+            return chart;
+        });
+    }
+
+
+    function montarTooltip(d) {
+        var dados = (d.point || d.data);
+        var valor = fmtGrafico(dados.v);
+        var titulo = dados.l;
+        if (dados.s)
+            titulo += " - " + dados.s;
+        if (dados.m)
+            valor += " (" + dados.m + ")";
+        return '<h3>' + titulo + '</h3><p>' + valor + '</p>';
+    }
+
+
+    // função que processa um evento de ferramenta do editor de visão
+    function eventoFerramenta(evento) {
+        evento.preventDefault();
+        // verifica o campo "data-opcao" e se o botão está habilitado
+        var $alvo = $(evento.currentTarget);
+        var opcao = $alvo.attr("data-opcao");
+        if (!opcao || typeof opcao !== "string" || $alvo.hasClass("disabled"))
+            // bubble de evento
+            return true;
+        // pegamos os dados do elemento e do plugin
+        var $editor = $(evento.delegateTarget);
+        // processar o evento
+        var plugin = evento.data;
+        switch (opcao) {
+            case "asc-sort":
+                return plugin.iniciarOrdenacao("asc");
+            case "desc-sort":
+                return plugin.iniciarOrdenacao("desc");
+            case "no-sort":
+                return plugin.iniciarOrdenacao("remove");
+            default:
+                throw "[Plugin-Visão] Comando desconhecido: '" + opcao + "'";
+        }
+        //
+        return true;
+    }
+
+    // faz o hover de linhas e colunas a partir do evento de cursor. depois deve dar pra melhorar
+    function hover(e) {
+        // se for um <span>, sobe pro elemento pai
+        var $el = $(e.target);
+
+        if ($el.is("span"))
+            $el = $el.parent();
+
+        // tenta buscar a referência
+        var ref = $el.data(CAMPO_REFERENCIA);
+
+        // se não for nem dado nem header, sair
+        if (!$el.is("td,th") || $el.is("th.cabecalho.linha") || !ref)
+            return;
+
+        // pega o elemento da tabela e verifica o tipo de hover
+        var $tabela = $el.closest("table");
+        var $header = $tabela.find("thead");
+
+        var adicionar = (e.type === "hover-in");
+        var multColunas = $tabela.attr("data-mult-colunas");
+
+        // verifica em quais sentidos o span deve ser aplicado
+        // calcula o span do elemento e seu indice em relação aos dados
+        if (!$el.is("th.linha")) {
+            // hover sobre a coluna de elementos
+            var span = parseInt($el.attr("colspan") || 1);
+            var indice = ($el.is("td") ? ref.x.ordem : ref.indice);
+
+            // pega o col e o rotulo de coluna referente a esse elemento
+            var $col = $header.find("th.x-col-" + indice);
+            var $grupo = $tabela.find("col.x-col-" + indice);
+
+            if ($el.is("th")) {
+                // se for um cabeçalho, dividir o span do cabeçalho multiplicador de coluna (> 1 se a coluna de dados for subdividida composta)
+                span = (span / multColunas) | 0; // obs: (n|0) apenas converte n para inteiro
+            }
+            else {
+                // se for uma célula de dados, inserir a classe de hover assim, pois pode ser uma célula composta
+                $el.parent()
+                    .children("td.x-col-" + indice)
+                    .toggleClass("hover", adicionar);
+            }
+
+            // adiciona/remove a classe nos elementos de coluna
+            while (span--) {
+                $grupo.toggleClass("hover", adicionar);
+                $col.toggleClass("hover", adicionar);
+                //
+                $grupo = $grupo.next();
+                $col = $col.next();
+            }
+        }
+
+        if ($el.is("td,th.linha")) {
+            // hover sobre a linha de elementos
+            var span = parseInt($el.attr("rowspan") || 1);
+            var $rows = $el.closest("tr");
+
+            while (span--) {
+                $rows.toggleClass("hover", adicionar);
+                $rows.find("th:last").toggleClass("hover", adicionar);
+                $rows = $rows.next();
+            }
+        }
+    }
+
+    // função privada para processar os eventos de cursor
+    function eventoEditor(e) {
+        // pega as variáveis e verifica a condição de saída
+        var plugin = e.data;
+        var $alvo = $(this);
+
+        if (!plugin || $alvo.hasClass("rodape") || $alvo.closest(".fonte-resultado").length)
+            return true;
+
+        // agora sim, processar o evento com base no estado do editor
+        var editor = plugin.editor;
+
+        switch (editor.estado) {
+            case estadoEditor.selecionar:
+                plugin.selecionarCelula($alvo);
+                break;
+
+            case estadoEditor.ordenar:
+                // processa condições excludentes do evento
+                if ($alvo.is("th:not(.rotulo.coluna.dados)"))
+                    return true;
+                // senão, pega o indice dessa coluna e ordena por ela
+                var ref = $alvo.data(CAMPO_REFERENCIA);
+                var indice = ($alvo.is("td") ? ref.x.ordem : ref.indice);
+                plugin.__ordenar(editor.modo, indice);
+                // finaliza o modo de ordenação
+                plugin.__reiniciarEditor();
+                break;
+        }
+        // se não saiu no caminho, foi processado. evitar propagação
+        e.stopPropagation();
+        return false;
+    }
+
+    function selecionarPorCabecalho(plugin, $th) {
+        var editor = plugin.editor;
+        editor.ancora = null;
+        //
+        var ref = $th.data(CAMPO_REFERENCIA);
+        // pega os atributos relevantes
+        var indice, span;
+        if (ref.tipo === tipoDado.instancia) {
+            indice = ref.ordem;
+            span = ref.rotulo.dimensao.span;
+        }
+        else {
+            indice = ref.indice;
+            span = ref.dimensao.span;
+        }
+        // processa a seleção em função de ser linha ou coluna
+        if (!$th.is("th.linha")) {
+            // seleção de coluna
+            editor.sel1 = { "x": indice, "y": 0 };
+            editor.sel2 = { "x": indice + span - 1, "y": plugin.contagem.linhas - 1 }
+        }
+        else {
+            // seleção por linha
+            editor.sel1 = { "x": 0, "y": indice };
+            editor.sel2 = { "x": plugin.contagem.colunas - 1, "y": indice + span - 1 }
+        }
+        // chama a função que concretiza a seleção
+        return selecionarIntervalo(plugin);
+    }
+
+    // pega as coordenadas de um elemento de dados
+    function pegarCoordenada($dado) {
+        var ref = $dado.data(CAMPO_REFERENCIA);
+        if (!ref)
+            return null;
+        else
+            return { "e": $dado, "x": ref.x.ordem, "y": ref.y.ordem, "t": ref.t.indice };
+    }
+
+    function selecionarIntervalo(plugin) {
+        // pega os indices de inicio e fim da marcação
+        var sel1 = plugin.editor.sel1;
+        var sel2 = plugin.editor.sel2;
+
+        // se algum deles for indefinido, sair sem fazer nada
+        if (!sel1 || !sel2)
+            return;
+
+        var x0 = sel1.x, x1 = sel2.x;
+        var y0 = sel1.y, y1 = sel2.y;
+
+        // se os valores iniciais forem menores que os finais, fazer swap
+        if (x0 > x1) x0 = x1 + (x1 = x0, 0);
+        if (y0 > y1) y0 = y1 + (y1 = y0, 0);
+
+        // atualiza as seleções
+        var tabelas = plugin.modelo.raizTabela.folhas;
+
+        for (var i = tabelas.length; i--;)
+            tabelas[i].selecao.atualizar(x0, y0, x1, y1);
+    }
+
+
+    // métodos relativos à classe que representa os retângulos de seleção
+    // (não é genérico. utiliza o estado interno da visão para acelerar o processo)
+    function RetanguloSelecao(visao, tabela) {
+        // cria os atributos básicos
+        this.$container = tabela.html.parent();
+        this.visao = visao;
+        this.tabela = tabela;
+        this.intervalo = null;
+        this.selecionados = [];
+        // setar os eventos no container
+        this.setarEventos();
+        // cria o retângulo de seleção
+        this.criarRetangulo();
+    }
+
+    // cria o handler de eventos para a tabela
+    RetanguloSelecao.prototype.setarEventos = function () {
+        var opcoesDrag = {
+            "selector": "td,.grip",
+            "data": this,
+            "onDouble": null,
+            "onDown": gripDown,
+            "onUp": gripUp,
+            "onMove": gripMove,
+            "smooth": true,
+            "touch": true
+        };
+        this.$container.drag(opcoesDrag);
+    }
+
+    // remove os listeners de eventos
+    RetanguloSelecao.prototype.removeEventos = function () {
+        //this.tabela.drag("remove");   // DEPOIS REMOVER DIREITINHO **********************************
+    }
+
+    RetanguloSelecao.prototype.atualizar = function (x0, y0, x1, y1) {
+        // salva o novo intervalo de dados
+        this.intervalo = { "x0": x0, "y0": y0, "x1": x1, "y1": y1 };
+        this.intervalo = this.intervaloCorrigido(); // MEIO MERDA, DEPOIS DA APRESENTAÇÃO AJEITAR ************************
+
+        // sinaliza todos os elementos como não marcados
+        var antigos = this.selecionados;
+        for (var i = antigos.length; i--;) {
+            antigos[i].s = false;
+        }
+
+        // seleciona todos os elementos dentro do intervalo
+        var selecionados = this.selecionados = [];
+
+        for (var y = y0; y <= y1; y++) {
+            var linha = this.tabela.linhas[y];
+
+            for (var x = x0; x <= x1; x++) {
+                var celula = linha.dados[x];
+
+                // insere na lista de selecionados
+                celula.s = true;
+                selecionados.push(celula);
+
+                // adicionar a classe
+                this._aplicarClasse(celula.h, true);
+            }
+        }
+
+        // remover a classe de seleção de todos os elementos que não foram re-selecionados
+        for (var i = antigos.length; i--;) {
+            if (!antigos[i].s)
+                this._aplicarClasse(antigos[i].h, false);
+        }
+
+        // atualiza a posição do retangulo de seleção
+        this.atualizarRetangulo();
+    }
+
+    RetanguloSelecao.prototype.remover = function () {
+        // esconde o retângulo no html
+        this.retangulo.wrapper.hide();
+
+        // zera o intervalo
+        this.intervalo = null;
+
+        // remover a classe de seleção de todos os elementos anteriormente selecionados
+        for (var i = this.selecionados.length; i--;) {
+            this._aplicarClasse(this.selecionados[i].h, false);
+        }
+
+        this.selecionados = [];
+    }
+
+    RetanguloSelecao.prototype._aplicarClasse = function (elemento, selecionado) {
+        elemento.toggleClass("sel", selecionado);
+        // se a celula for subdividida, aplicar a classe tambem a elas
+        for (var i = this.visao.subdivisaoColunas; --i > 0;) {
+            elemento = elemento.next();
+            elemento.toggleClass("sel", selecionado);
+        }
+    };
+
+    RetanguloSelecao.prototype.intervaloCorrigido = function () {
+        var i = this.intervalo;
+        var x0 = i.x0, x1 = i.x1;
+        var y0 = i.y0, y1 = i.y1;
+        //
+        if (x0 > x1) x0 = x1 + (x1 = x0, 0);
+        if (y0 > y1) y0 = y1 + (y1 = y0, 0);
+        //
+        return { "x0": x0, "x1": x1, "y0": y0, "y1": y1 };
+    }
+
+    RetanguloSelecao.prototype.atualizarRetangulo = function () {
+        if (this.intervalo) {
+            // corrige a ordem do intervalo
+            var intervalo = this.intervaloCorrigido();
+
+            // pega os elementos delimitadores da seleção
+            var el1 = this.tabela.linhas[intervalo.y0].dados[intervalo.x0].h;
+            var el2 = this.tabela.linhas[intervalo.y1].dados[intervalo.x1].h;
+
+            // se a celula for subdidivida, caminhar ate o final da subdivisao
+            for (var i = this.visao.subdivisaoColunas; --i > 0;)
+                el2 = el2.next();
+
+            // calcula a coordenada inicial do retângulo, com relação ao container
+            var containerOffset = this.$container.offset();
+            var el1Offset = el1.offset();
+            var x = el1Offset.left - containerOffset.left;
+            var y = el1Offset.top - containerOffset.top;
+
+            // calcula o tamanho do retângulo
+            var el2Offset = el2.offset()
+            var w = (el2Offset.left + el2.outerWidth()) - el1Offset.left;
+            var h = (el2Offset.top + el2.outerHeight()) - el1Offset.top;
+
+            // atualiza os elementos de borda html
+            var r = this.retangulo;
+            r.top.css("width", w);
+            r.left.css("height", h);
+            r.bottom.css({ "width": w });
+            r.right.css({ "height": h });
+
+            // atualiza o offset do wrapper de seleção
+            r.wrapper.css({ "left": x, "top": y }).show();
+        }
+    }
+
+    // cria os elementos html que compõem o retângulo de seleção
+    RetanguloSelecao.prototype.criarRetangulo = function () {
+        var $wrapper = $("<div>").addClass("sel-overlay").data("__rect", this).hide();
+        // cria os subelementos do retângulo de seleção
+        // bordas superior e esquerda do retângulo
+        this.retangulo = {
+            left: $("<div class='borda borda-l'></div>").appendTo($wrapper),
+            top: $("<div class='borda borda-t'></div>").appendTo($wrapper)
+        };
+        // coloca a borda direita na superior, e inferior na esquerda
+        this.retangulo.right = $("<div class='borda borda-r'></div>").appendTo(this.retangulo.top),
+            this.retangulo.bottom = $("<div class='borda borda-b'></div>").appendTo(this.retangulo.left);
+        // pegadas da seleção como filhas das bordas superior e inferior
+        this.retangulo.grips = [
+            $("<div class='grip' data-i='0'><div><div></div></div></div>").appendTo(this.retangulo.top),
+            $("<div class='grip grip-1' data-i='1'><div><div></div></div></div>").appendTo(this.retangulo.top),
+            $("<div class='grip' data-i='2'><div><div></div></div></div>").appendTo(this.retangulo.bottom),
+            $("<div class='grip grip-1' data-i='3'><div><div></div></div></div>").appendTo(this.retangulo.bottom)
+        ];
+        // insere no container e salva o wrapper
+        this.retangulo.wrapper = $wrapper.appendTo(this.$container);
+    }
+
+    function gripDown(x, y, retangulo) {
+        console.log("grip-down")
+        var $item = $(this);
+        if ($item.is(".grip")) {
+            // é uma pegada do seletor
+            $item.addClass("in");
+            //
+            retangulo.drag = $item;
+            return true;
+        }
+        else {
+            // é um item de tabela. ainda não to usando
+            return false;
+        }
+    }
+
+    function gripMove(x, y, retangulo) {
+        console.log("grip-move")
+        // É MEIO PESADO, MAS VAMOS VER COMO SE SAI NA PRÁTICA, ENQUANTO A EXTENSÃO DO $.FN.DRAG AINDA NÃO TA PRONTA **************
+        var $item = $(this);
+        //
+        var offset = retangulo.$container.offset();
+        var $alvo = $(document.elementFromPoint(x + offset.left, y + offset.top));
+        if ($alvo.is("td")) {
+            var ref = $alvo.data(CAMPO_REFERENCIA);
+            if (ref) {
+                // pega a posição da célula na tabela
+                var x = ref.x.ordem;
+                var y = ref.y.ordem;
+                // identifica quais limites devem ser alterados no intervalo
+                var indice = parseInt(retangulo.drag.attr("data-i"));
+                var intervalo = retangulo.intervalo;
+                intervalo[indice % 2 ? "x1" : "x0"] = x;
+                intervalo[indice > 1 ? "y1" : "y0"] = y;
+                // atualiza a exibição do retângulo
+                retangulo.atualizarRetangulo();
+            }
+        }
+    }
+
+    function gripUp(retangulo) {
+        console.log("grip-up");
+
+        // remove as classes da seleção
+        retangulo.drag.removeClass("in");
+        retangulo.drag = null;
+
+        // consolida a seleção
+        var intervalo = retangulo.intervaloCorrigido();
+        var visao = retangulo.visao;
+
+        visao.editor.sel1 = {
+            x: intervalo.x0,
+            y: intervalo.y0
+        }
+
+        visao.editor.sel2 = {
+            x: intervalo.x1,
+            y: intervalo.y1
+        }
+
+        selecionarIntervalo(visao);
+    }
+
+
+    // definição do plugin no namespace do jquery
+    $.fn.visao = function (opcoes, arg1) {
+        // verifica se o elemento já possui um plugin de visão, e o cria caso negativo
+        var elemento = $(this);
+        var plugin = elemento.data(CAMPO_PLUGIN);
+        if (!plugin) {
+            plugin = new Visao(elemento, opcoes);
+            return elemento;
+        }
+        // processa o comando, caso recebido
+        if (typeof opcoes !== 'string')
+            return elemento;
+        else {
+            var metodo = plugin['__' + opcoes];
+            if (!metodo)
+                throw 'Método não encontrado: ' + opcoes;
+            else
+                return metodo.apply(plugin, [arg1]);
+        }
+    };
+
+})(this, jQuery);

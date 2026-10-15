@@ -1,0 +1,177 @@
+﻿var contatoForm;
+
+var modalContatoForm = $('\
+<div class="contato-dialog modal fade" role="dialog">\
+    <div class="modal-dialog">\
+        <div class="modal-content">\
+            <div class="modal-header">\
+                <button type="button" class="close" data-dismiss="modal">&times;</button>\
+                <h5 class="modal-title">Suporte / Contato</h5>\
+            </div>\
+            <div class="modal-body">\
+            </div>\
+            <div class="modal-footer">\
+                <button type="button" class="btn btn-default" id="contato-submit-button">Enviar</button>\
+                <button type="button" class="btn btn-default" data-dismiss="modal">Fechar</button>\
+            </div>\
+        </div>\
+    </div>\
+</div>');
+
+var linkModalContato = $('\
+<div class="alert alert-danger" role="alert">\
+    <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>&nbsp;\
+    <a style=" color: #980303" href="" class="form-contato-modal">Clique aqui para enviar sua sugestão, crítica, elogio, dúvida, etc.</a>\
+</div>');
+
+function enviarMensagem() {
+    var nomeInput = contatoForm.find("input[name='nome']");
+    var emailnput = contatoForm.find("input[name='email']");
+    var tipoSelect = contatoForm.find("select[name='tipo']");
+    var mensagemInput = contatoForm.find("textarea[name='mensagem']");
+
+    var nome = nomeInput.val().trim();
+    var email = emailnput.val().trim();
+    var tipo = tipoSelect.val().trim();
+    var mensagem = mensagemInput.val().trim();
+
+    var captcha;
+
+    if (typeof (grecaptcha) !== 'undefined') {
+        captcha = grecaptcha.getResponse();
+    } else {
+        contatoForm.find("#contato-recaptcha").html("Falha ao carregar opção 'Não sou um robô'");
+    }
+
+    var valid = true;
+    if (!validateEmail(email)) {
+        contatoForm.find(".form-error-email .mensagem").html("E-mail inválido");
+        contatoForm.find(".form-error-email").css("display", "block");
+        valid = false;
+    } else {
+        contatoForm.find(".form-error-email").css("display", "none");
+    }
+
+    if (isEmpty(tipo)) {
+        contatoForm.find(".form-error-tipo .mensagem").html("Preencha o tipo da mensagem");
+        contatoForm.find(".form-error-tipo").css("display", "block");
+        valid = false;
+    } else {
+        contatoForm.find(".form-error-tipo").css("display", "none");
+    }
+
+    if (isEmpty(mensagem)) {
+        contatoForm.find(".form-error-mensagem .mensagem").html("Preencha sua mensagem");
+        contatoForm.find(".form-error-mensagem").css("display", "block");
+        valid = false;
+    } else {
+        contatoForm.find(".form-error-mensagem").css("display", "none");
+    }
+
+    if (isEmpty(captcha)) {
+        contatoForm.find(".form-error-captcha .captcha").html("Seleciona a opção \"Não sou um robô\"");
+        contatoForm.find(".form-error-captcha").css("display", "block");
+        valid = false;
+    } else {
+        contatoForm.find(".form-error-captcha").css("display", "none");
+    }
+
+    if (valid) {
+        contatoForm.loading();
+
+        $.ajax({
+            method: "POST",
+            url: "/Contato/enviar",
+            data: contatoForm.serialize()
+        }).done(function (msg) {
+            if (msg.result == "OK" || (msg.result == "ERROR" && msg.message != null)) {
+                var suc = $(".contato-sucesso");
+
+                suc.find ("h4").html(msg.message);
+                suc.css("display", "table");
+
+                $("#contato-submit-button").remove();
+                contatoForm.remove();
+            } else {
+                contatoForm.find(".form-error").css("display", "none");
+                for (var i = 0; i < msg.errors.length; i++) {
+                    var error = msg.errors[i];
+
+                    contatoForm.find(".form-error-" + error.field + " .mensagem").html(error.message);
+                    contatoForm.find(".form-error-" + error.field).css("display", "block");
+                }
+            }
+
+            contatoForm.loading("fechar");
+        });
+    }
+}
+
+function validateEmail(email) {
+    if (email) {
+        email = email.trim();
+    }
+
+    if (email == "") {
+        return true;
+    }
+
+    var re = /^([\w-]+(?:\.[\w-]+)*)@((?:[\w-]+\.)*\w[\w-]{0,66})\.([a-z]{2,6}(?:\.[a-z]{2})?)$/i;
+    return re.test(email);
+}
+
+function registerContatoForm() {
+    contatoForm = $(".form-contato");
+    var button = $("#contato-submit-button");
+
+    contatoForm.off('submit');
+    contatoForm.submit(function (e) {
+        e.preventDefault();
+
+        enviarMensagem();
+    });
+
+    button.off("click");
+    button.click(enviarMensagem);
+}
+
+function captchaLoadCallback() {
+    widgetId1 = grecaptcha.render('contato-recaptcha', {
+        'sitekey': '6LfCaCUTAAAAAHCZj9zO_HB2eT0PuFbyZS741x5I',
+        'theme': 'light'
+    });
+
+}
+
+(function ($) {
+
+    $.sidra.contato = function () {
+        $(".contatoLink").html(linkModalContato);
+        $(".contatoForm").html(modalContatoForm);
+
+        $(".form-contato-modal").click(function (e) {
+            e.preventDefault();
+
+            var urlAjax = "/ajax/contato/index/1";
+            var tab = ".contato-dialog";
+            var modalBody = tab + " .modal-body";
+
+            $.ajax({
+                type: "GET",
+                url: urlAjax
+            }).fail(function () {
+                $(modalBody).html("Falha ao carregar dados");
+            }).done(function (data) {
+                $(modalBody).html(data);
+
+                registerContatoForm();
+            });
+
+
+            $(tab).modal('show');
+        });
+    }
+  
+})(jQuery);
+
+$(document).ready(registerContatoForm);

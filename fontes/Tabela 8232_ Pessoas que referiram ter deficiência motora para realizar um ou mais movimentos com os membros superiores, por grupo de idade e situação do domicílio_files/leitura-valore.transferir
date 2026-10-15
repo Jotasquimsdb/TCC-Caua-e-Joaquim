@@ -1,0 +1,79 @@
+﻿
+(function (Global, $) {
+
+    var stateConversion = {
+        0: 'Conectando',
+        1: 'Conectado',
+        2: 'Reconectando',
+        4: 'Desconectado'
+    };
+
+    var _sequencia = 999;
+
+    function LeituraHub() {
+        this.connection = null;
+        this.proxy = null;
+        this.id = idSessao.replace(/-/gm, ".") + "_" + (++_sequencia);
+    }
+
+    $.extend(LeituraHub.prototype, {
+        connect: function () {
+            var connection = $.hubConnection();
+            var proxy = connection.createHubProxy('LeituraValores');
+
+            this.connection = connection;
+            this.proxy = proxy;
+            var that = this;
+
+            proxy.on('leituraMessage', function (evento, message) {
+                if ($.isFunction(that.onProgresso))
+                    that.onProgresso.apply(that, arguments);
+            });
+
+            /*
+            connection.logging = true;
+
+            connection.stateChanged(function (change) {
+                console.log.apply(console, arguments);
+            });
+
+            connection.disconnected(function () {
+                if (connection.lastError)
+                    alert("Disconnected. Reason: " + connection.lastError.message);
+            });
+            */
+
+            // define uma query string contendo o id dessa sessão de leitura, e inicia a conexão
+            connection.qs = { Sessao: this.id };
+
+            connection
+                .start({ transport: 'longPolling' })
+                .done(function () {
+                    console.log(connection);
+                })
+                .fail(function () {
+                    //alert("A conexão com o servidor falhou.");
+                });
+
+        },
+
+        disconnect: function () {
+            this.connection.stop();
+        },
+
+        isConnecting: function () {
+            return (this.connection.state === 0);
+        },
+
+        isConnected: function () {
+            return (this.connection.state === 1);
+        },
+
+        connectionState: function () {
+            return (this.connection.state);
+        }
+    });
+
+    Global.LeituraHub = LeituraHub;
+
+})(this, jQuery);

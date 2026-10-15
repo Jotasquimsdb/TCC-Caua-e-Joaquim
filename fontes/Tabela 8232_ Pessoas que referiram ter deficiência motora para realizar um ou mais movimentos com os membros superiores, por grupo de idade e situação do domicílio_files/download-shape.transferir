@@ -1,0 +1,780 @@
+﻿
+function inicializarDownloadShapes(options) {
+
+    var html = "".concat(
+        '<div style="margin-bottom: 8px;">',
+        '<h5 class="modal-header-checkbox">Opções</h5>',
+        '<ul class="border-left-opcoes-visualizacao">',
+        '<li class="grupo-opcao">',
+        '<h5>Formato de arquivo</h5>',
+        '<select id="select-shapes-formato" class="form-control">',
+        '<option value="kml">KML</option>',
+        '<option value="shape">SHAPE</option>',
+        '<option value="json">JSON</option>',
+        '<option value="csv">CSV</option>',
+        '<option value="gml2">GML2</option>',
+        '<option value="gml3">GML3</option>',
+        '</select>',
+        '</li>',
+        '<li class="grupo-opcao">',
+        '<h5>Método de agrupamento',
+        ' &nbsp;<a target="_blank" href="/Content/Documentos/MetodoDeAgrupamento.pdf" style="vertical-align:middle;"><i class="glyphicon glyphicon-question-sign"></i></a>',
+        '</h5>',
+        '<select id="select-shapes-metodo" class="form-control">  ',
+        '<option value="todos">Agrupar todas as unidades de cada nível em um mesmo arquivo</option>',
+        '<option value="separar">Cada unidade territorial em um arquivo separado</option>',
+        '</select>',
+        '</li>',
+        '<li class="grupo-opcao">',
+        '<label class="checkbox-inline">',
+        '<input id="check-shapes-sepAnos" type="checkbox" titulo="Separar anos" checked />',
+        'Obter recortes distintos para cada período selecionado',
+        '</label>',
+        ' &nbsp;<a target="_blank" href="/Content/Documentos/RecortesDistintosPraCadaPeriodo.pdf" style="vertical-align:middle;"><i class="glyphicon glyphicon-question-sign"></i></a>',
+        '<p class="nota-opcao" style="margin-top: 10px;">',
+        'Os recortes para cada período dependem da disponibilidade do provedor de geoserviços. ',
+        'Caso desmarcada esta opção, o período mais recente disponível será utilizado',
+        '</p>',
+        '</li>',
+        '<li class="grupo-opcao">',
+        '<label class="checkbox-inline">',
+        '<input id="check-shapes-metadata" type="checkbox" titulo="Incluir metadados" />',
+        'Incluir referências do catálogo de Metadados Geoespaciais.',
+        '</label>',
+        '</li>',
+        '</ul>',
+        '</div>',
+        '<hr />',
+        '<div style="margin-bottom: 8px;">',
+        '<h5 class="modal-header-checkbox">Resumo da seleção</h5>',
+        '<div class="painel-mensagens" id="resumo-download-shapes">',
+        '</div>',
+        '</div>'
+    );
+
+    var modalShapes;
+    var selecao;
+    var opcoes;
+    var consulta;
+    var promise;
+
+    var maisRecente = 2022;
+    var maisAntigo = 2010;
+    var limiteTasks = 6;
+    var tamanhoGrupo = 10;
+    var zipParcial = false;
+    var geoCache = {};
+
+    // capabilities: https://geoservicos.ibge.gov.br/geoserver/ows?service=wfs&version=1.0.0&request=GetCapabilities
+
+    var urlBase = "https://geoservicos.ibge.gov.br/geoserver/CGMAT/ows?service=WFS&version=1.0.0&request=GetFeature&typeName={feature}&outputFormat={formato}";
+
+    var formatos = {
+        kml: { mime: "application%2Fvnd.google-earth.kml%2Bxml", extensao: "kml", dataType: "text" },
+        shape: { mime: "shape-zip", extensao: "zip", dataType: "binary" },
+        json: { mime: "json", extensao: "json", dataType: "text" },
+        csv: { mime: "csv", extensao: "csv", dataType: "text" },
+        gml2: { mime: "gml2", extensao: "xml", dataType: "text" },
+        gml3: { mime: "gml3", extensao: "xml", dataType: "text" }
+    };
+
+    var geoFeaturePorNivel = {
+        1: "CGMAT:qg_{A}_000_brasil_agreg",
+        2: "CGMAT:qg_{A}_010_grandreg_agreg",
+        3: "CGMAT:qg_{A}_020_uf_agreg",
+        6: "CGMAT:qg_{A}_030_munic",
+        8: "CGMAT:qg_{A}_170_mesoreg_agreg",
+        9: "CGMAT:qg_{A}_180_microreg_agreg",
+        15: "CGMAT:qg_{A}_230_aglomurb_agreg",
+        23: "CGMAT:qg_{A}_100_arranjpop_agreg",
+        24: "CGMAT:qg_{A}_120_reggeoginterm_agreg",
+        25: "CGMAT:qg_{A}_110_reggeogimed_agreg",
+        33: "CGMAT:qg_{A}_090_concurb_agreg",
+        123: "CGMAT:qg_{A}_240_bioma",
+        132: "CGMAT:qg_{A}_080_semiarido_agreg",
+        1013: "CGMAT:qg_{A}_050_faixfront_agreg",
+        1125: "CGMAT:qg_{A}_610_terraindigena",
+        1145: "CGMAT:qg_{A}_620_territorioquilombola_v02"
+    };
+
+    var geoCodigoPorNivel = {
+        1: "cd_pais",
+        2: "cd_grandreg",
+        3: "cd_uf",
+        6: "cd_mun",
+        8: "cd_meso",
+        9: "cd_micro",
+        15: "cd_aglomurb",
+        23: "cd_arranjpop",
+        24: "cd_rgint",
+        25: "cd_rgi",
+        33: "cd_concurb",
+        123: "cd_bioma",
+        132: "cd_semiarido",
+        1013: "cd_faixafront",
+        1125: "cd_ti",
+        1145: "cd_tq"
+    };
+
+    var geoVigenciasPorNivel = {
+        1: 0,
+        2: 0,
+        3: 0,
+        6: 0,
+        8: 1,
+        9: 1,
+        15: 1,
+        23: 1,
+        24: 1,
+        25: 1,
+        33: 1,
+        123: 2,
+        132: 1,
+        1013: 1,
+        1125: 4,
+        1145: 3
+    }
+
+    var vigencias = [
+        "2010-2012,2018,2019,2020,2021,2022",
+        "2019,2020,2021,2022",
+        "2017*",
+        "2022*",
+        "2017-2021"
+    ];
+
+    function isDisponivel(nivel, ano) {
+        var disp = geoVigenciasPorNivel[nivel];
+        return !!(disp && disp[ano]);
+    }
+
+    function getAnoMalha(nivel, ano) {
+        var disp = geoVigenciasPorNivel[nivel];
+        return (disp && disp[ano]) || 0;
+    }
+
+    function ultimoAnoPorNivel(nivel) {
+        var disp = geoVigenciasPorNivel[nivel];
+        return (disp && disp.last);
+    }
+
+    function getFeature(nivel, ano) {
+        var anoMalha = geoVigenciasPorNivel[nivel][ano];
+        return geoFeaturePorNivel[nivel].replace("{A}", anoMalha);
+    }
+
+    function prepararVigencias() {
+        for (var id in geoVigenciasPorNivel) {
+            var vig = vigencias[geoVigenciasPorNivel[id]];
+            var data = geoVigenciasPorNivel[id] = {};
+            var partes = vig.split(',');
+            while (partes.length) {
+                var b, p = partes.pop(), a = Number(p.slice(0, 4));
+                if (p.length == 4) {
+                    data[a] = a;
+                    b = a;
+                }
+                else {
+                    b = (p.length == 5) ? maisRecente : Number(p.slice(-4));
+                    for (var c = a; c <= b; c++)
+                        data[c] = a;
+                }
+                if (!data.last)
+                    data.last = b;
+            }
+        }
+        vigencias = null;
+    }
+
+    function inicializarModalShapes() {
+        prepararVigencias();
+
+        modalShapes = $("#modal-download-shapes");
+
+        options.target
+            .on("change", "input[type=checkbox],select", evtModalShapeCheckbox);
+
+        options.button
+            .on("click", evtExecutar);
+
+        modalShapes
+            .on("show.bs.modal", inicializarModal)
+            .on("hide.bs.modal", limparEstado);
+    }
+
+    function $disable(el) {
+        return el
+            .addClass("disabled")
+            .attr("disabled", "disabled");
+    }
+
+    function $enable(el) {
+        return el
+            .removeClass("disabled")
+            .removeAttr("disabled", "disabled");
+    }
+
+    function evtModalShapeCheckbox(e) {
+        lerOpcoes();
+        validarConsulta();
+    }
+
+    function limparEstado(e) {
+        if (promise && !promise.abortado) {
+            if (!window.confirm("Deseja mesmo cancelar a consulta?"))
+                return false;
+        }
+        selecao = null;
+        opcoes = null;
+        consulta = null;
+        if (promise) {
+            if (!promise.abortado) {
+                removeCarregando(promise.loading);
+                promise.abortado = true;
+            }
+            promise = null;
+        };
+    }
+
+    function inicializarModal() {
+        atualizarInfo();
+    }
+
+    function downloadShapes() {
+        if (!modalShapes)
+            inicializarModalShapes();
+        if (modalShapes.is(":visible"))
+            return;
+        modalShapes.modal("show");
+    }
+
+    function atualizarInfo() {
+        lerOpcoes();
+        options.select(options.data, function (result) {
+            selecao = result;
+            validarConsulta();
+        });
+    }
+
+    function lerOpcoes() {
+        opcoes = {
+            sepAnos: $("#check-shapes-sepAnos").prop("checked"),
+            metadados: $("#check-shapes-metadata").prop("checked"),
+            metodo: $("#select-shapes-metodo")[0].value,
+            formato: $("#select-shapes-formato")[0].value
+        };
+    }
+
+    function itemResumo(texto) {
+        return $("<p>").addClass("s-texto-azul").html(texto);
+    }
+
+    function atencaoResumo(texto) {
+        return $("<p>").addClass("s-texto-amarelo-esc").html(texto);
+    }
+
+    function erroResumo(texto) {
+        return $("<p>").addClass("s-texto-vermelho").html(texto);
+    }
+
+    function destaqueResumo(texto) {
+        return $("<p>").addClass("s-texto-verde-esc").html(texto);
+    }
+
+    function logPainel(mensagem, warn) {
+        if (warn)
+            mensagem = atencaoResumo(mensagem);
+        $("#resumo-download-shapes").append(mensagem);
+    }
+
+    function inserir(map, key, val) {
+        var lst = (map[key] || (map[key] = []));
+        lst.push(val);
+    }
+
+    function validarConsulta() {
+        var $painel = $("#resumo-download-shapes").empty();
+
+        var niveis = selecao.niveis.slice(0);
+        var anos = selecao.anos.slice(0);
+        var metodo = opcoes.metodo;
+
+        consulta = {
+            niveis: [],
+            anos: [],
+            niveisPorAno: {}
+        };
+
+        var niveisPorAno = consulta.niveisPorAno;
+        var niveisInvalidos = [];
+        var anosIndisponiveis = {};
+        var nTerritorios = 0;
+
+        var agruparPorMalha = true;
+
+        for (var i = 0; i < niveis.length; i++) {
+            var nivel = niveis[i];
+            var nid = nivel.id;
+            var valido = false;
+            if (!opcoes.sepAnos) {
+                var ano = ultimoAnoPorNivel(nid);
+                if (ano) {
+                    inserir(niveisPorAno, ano, nivel);
+                    valido = true;
+                }
+            }
+            else {
+                for (var j = 0; j < anos.length; j++) {
+                    var ano = anos[j];
+                    var malha = getAnoMalha(nid, ano);
+                    if (!malha)
+                        inserir(anosIndisponiveis, nid, ano);
+                    else {
+                        if (agruparPorMalha)
+                            ano = malha;
+                        inserir(niveisPorAno, ano, nivel);
+                        valido = true;
+                    }
+                }
+            }
+            if (!valido) {
+                niveisInvalidos.push(nid);
+            }
+            else {
+                consulta.niveis.push(nid);
+                nTerritorios += 1;
+            }
+        }
+
+        console.log(niveisPorAno);
+
+        consulta.anos = Object.keys(niveisPorAno);
+
+        var selecaoInvalida = false;
+        var nArquivos = 0;
+
+        if (nTerritorios == 0) {
+            $painel.append(erroResumo("Não existem recortes territoriais para a seleção"));
+            selecaoInvalida = true;
+        }
+        else {
+            $painel.append(itemResumo((nTerritorios == 1)
+                ? "Identificado 1 nível territorial válido"
+                : "Identificados " + nTerritorios + " níveis territoriais válidos"
+            ));
+
+            if (niveisInvalidos.length > 0)
+                $painel.append(atencaoResumo("Nenhum recorte disponível para os níveis: " + $.sidra.listar(niveisInvalidos)));
+
+            for (var id in anosIndisponiveis)
+                $painel.append(atencaoResumo("Não existem recortes do nivel " + id + " para os anos: " + $.sidra.listar(anosIndisponiveis[id])));
+
+            for (var ano in niveisPorAno) {
+                var lista = niveisPorAno[ano];
+                if (metodo == "todos") {
+                    nArquivos += lista.length;
+                }
+                else {
+                    for (var i = 0; i < lista.length; i++)
+                        nArquivos += lista[i].unidades.length;
+                }
+            }
+
+            $painel.append(destaqueResumo((nArquivos == 1)
+                ? "Será gerado 1 arquivo"
+                : "Serão gerados " + nArquivos + " arquivos"));
+        }
+
+        var $btn = $(options.button);
+
+        if (selecaoInvalida)
+            $disable($btn);
+        else
+            $enable($btn);
+    }
+
+    function evtExecutar() {
+        if ($(this).hasClass("disabled"))
+            return;
+
+        if (promise)
+            promise.abortado = true;
+
+        var $loading = criarLoading(options.container || options.target);
+
+        promise = {
+            etapa: "",
+            loading: $loading,
+            bytes: 0,
+            concluidos: 0,
+            fila: [],
+            metadados: null,
+            abortado: false
+        };
+
+        // gerar a lista de consultas
+        var consultas = promise.fila = [];
+        var metodo = opcoes.metodo;
+        var titulo = "territorios_N" + consulta.niveis.join(",");
+        var grupos = [];
+
+        for (var ano in consulta.niveisPorAno) {
+            var niveis = consulta.niveisPorAno[ano];
+            for (var i = 0; i < niveis.length; i++) {
+                var nivel = niveis[i];
+                var unidades = nivel.unidades;
+                grupos.push({
+                    indice: grupos.length,
+                    ano: ano,
+                    nivel: nivel.id,
+                    nome: nivel.nome
+                });
+                if (metodo == "todos") {
+                    consultas.push(montarConsulta(ano, nivel, unidades, true));
+                }
+                else if (metodo == "separar") {
+                    for (var j = 0; j < unidades.length; j++) {
+                        consultas.push(montarConsulta(ano, nivel, [unidades[j]], false));
+                    }
+                }
+                else {
+                    var unidades = unidades.slice(0);
+                    while (unidades.length) {
+                        var count = Math.min(tamanhoGrupo, unidades.length);
+                        consultas.push(montarConsulta(ano, nivel, unidades.splice(0, count), false));
+                    }
+                }
+            }
+        }
+
+        console.log(grupos);
+        console.log(consultas);
+
+        if (!opcoes.metadados) {
+            executarDownload(titulo, promise);
+        }
+        else {
+            promise.etapa = "Obtendo metadados";
+            updateLoading(promise);
+
+            var ctxPromise = promise;
+            obterMetadados(grupos, function (meta) {
+                if (ctxPromise.abortado)
+                    return;
+                ctxPromise.metadados = meta;
+                executarDownload(titulo, ctxPromise);
+            });
+        }
+    }
+
+    function montarConsulta(ano, nivel, unidades, isPost) {
+        var nid = nivel.id;
+        var key = geoCodigoPorNivel[nid];
+        var fmt = formatos[opcoes.formato];
+        var feature = getFeature(nid, ano);
+        var dn = nivel.digitos;
+
+        var lista = $.map(unidades, function (u) {
+            return $.sidra.padStart(u, dn, '0');
+        });
+
+        var url = urlBase
+            .replace("{feature}", feature)
+            .replace("{formato}", fmt.mime);
+
+        var titulo = ano + "/N" + nid + "_";
+        var data;
+
+        if (isPost || lista.length > 1) {
+            data = { "cql_filter": key + " in('" + lista.join("','") + "')" };
+            titulo += (isPost ? "all" : lista.join(","));
+        }
+        else {
+            data = { "cql_filter": key + "='" + lista[0] + "'" };
+            titulo += lista[0];
+        }
+
+        //console.log(url);
+        return {
+            titulo: titulo + "." + fmt.extensao,
+            binario: (fmt.dataType == "binary"),
+            ano: ano,
+            nivel: nid,
+            url: url,
+            data: data,
+            post: isPost
+        };
+    }
+
+    var templateLoading = "${e}<br/>${b}<br/>Arquivos ${i}/${n}";
+
+    function htmlLoading(etapa, bytes, indice, count) {
+        return $.sidra.template(templateLoading, {
+            e: etapa,
+            b: $.sidra.formatarBytes(bytes) + " recebidos",
+            i: indice,
+            n: count
+        });
+    }
+
+    function criarLoading(elemento) {
+        elemento = $(elemento);
+        if (!elemento.loading("active"))
+            elemento.loading(htmlLoading("Preparando", 0, 0, 1));
+        progressoCarregando(elemento, 0);
+        return elemento;
+    }
+
+    function updateLoading(promise) {
+        if (!promise.loading.loading("active"))
+            return;
+        promise.loading
+            .loading("update", htmlLoading(promise.etapa, promise.bytes, promise.concluidos, promise.fila.length))
+            .loading("progress", promise.concluidos / promise.fila.length);
+    }
+
+    var metaQuery = "https://servicos.inde.gov.br/integracaoindeinda/metadados";
+    var metaUrl = "https://metadadosgeo.ibge.gov.br/geonetwork_ibge/srv/por/catalog.search#/metadata/";
+
+    function obterMetadados(grupos, callback) {
+        var html = ["<!DOCTYPE html><html><head><style>table{border-collapse:collapse;}th,td{padding:8px;}</style></head><body><table border='1' cellspacing='0'><tr><th>Ano</th><th>Nível</th><th>Nome</th><th>Metadados</th></tr>"];
+
+        var listOffset = html.length;
+        var restantes = grupos.length;
+
+        for (var i = 0; i < grupos.length; i++) {
+            queryMetadados(grupos[i], queryCallback);
+        }
+
+        function queryCallback(grupo, meta) {
+            var url;
+            if (meta && meta.length > 0) {
+                url = metaUrl + meta[0].uuid;
+                //console.log(url)
+                url = "<a href='" + url + "' target='_blank'>" + url + "</a>";
+            }
+            else {
+                url = "Não disponível";
+            }
+            var id = grupo.nivel;
+            var nivel = grupo.nome;
+            var item = "<tr><td>" + grupo.ano + "</td><td>" + id + "</td><td>" + nivel + "</td><td>" + url + "</td></tr>";
+            html[grupo.indice + listOffset] = item;
+
+            if (--restantes)
+                return;
+
+            html.push("</table></body></html>");
+            callback(html.join(""));
+        }
+    }
+
+    function queryMetadados(grupo, callback) {
+        var camada = geoFeaturePorNivel[grupo.nivel]
+            .replace("{A}", grupo.ano);
+
+        var data = { camadas: { instituicao: "ibge", camadas: [camada] } };
+        var url = metaQuery + "?camadas=" + encodeURIComponent(JSON.stringify(data.camadas));
+        console.log(data);
+
+        $.ajax({
+            url: url,
+            type: "POST",
+            crossDomain: true,
+            data: data,
+            success: function (res) {
+                console.log(res);
+                callback(grupo, res);
+            },
+            fail: function () {
+                callback(grupos, null);
+            }
+        });
+    }
+
+    var nomeArquivoMetadados = "metadados_geoespaciais.html";
+    var mimeZip = "application/zip";
+
+    function executarDownload(titulo, ctxPromise) {
+        geoCache = {};
+        ctxPromise.etapa = "Executando consulta";
+        updateLoading(ctxPromise);
+
+        var consultas = ctxPromise.fila.slice(0);
+        var total = consultas.length;
+        var executando = 0;
+        var opcoesCompressao = { level: consulta.binario ? 0 : 1 };
+
+        var resultado, zip;
+
+        if (!zipParcial || ctxPromise.metadados)
+            zip = new JSZip();
+
+        if (ctxPromise.metadados) {
+            zip.file(nomeArquivoMetadados, ctxPromise.metadados, { base64: false });
+            if (zipParcial) {
+                resultado = zip.generate({
+                    compression: "DEFLATE",
+                    compressionOptions: { level: 1 },
+                    mimeType: mimeZip,
+                    type: "uint8array"
+                });
+                zip = null;
+            }
+        }
+
+        while (consultas.length > 0 && executando < limiteTasks) {
+            executando++;
+            requisitarShape(consultas.pop(), 5, callback);
+        }
+
+        function callback(consulta, dados) {
+            if (ctxPromise.abortado)
+                return;
+
+            ++ctxPromise.concluidos;
+            updateLoading(ctxPromise);
+
+            if (!dados) {
+
+            }
+            else if (!zipParcial) {
+                zip.file(consulta.titulo, dados, { base64: false });
+            }
+            else {
+                zip = new JSZip(resultado);
+                zip.file(consulta.titulo, dados, { base64: false });
+                resultado = zip.generate({
+                    compression: "DEFLATE",
+                    compressionOptions: opcoesCompressao,
+                    mimeType: mimeZip,
+                    type: "uint8array"
+                });
+                zip = null;
+            }
+
+            if (ctxPromise.concluidos < total) {
+                if (consultas.length)
+                    requisitarShape(consultas.pop(), 5, callback);
+                return;
+            }
+
+            carregando(ctxPromise.loading, "Gerando resultado...");
+
+            setTimeout(function () {
+                if (!zipParcial) {
+                    resultado = zip.generate({
+                        compression: "DEFLATE",
+                        compressionOptions: opcoesCompressao,
+                        mimeType: mimeZip,
+                        type: "uint8array"
+                    });
+                }
+                $.sidra.salvar(titulo + ".zip", resultado, mimeZip, false);
+                if (!ctxPromise.abortado) {
+                    removeCarregando(ctxPromise.loading);
+                    geoCache = {};
+                    promise = null;
+                }
+            }, 400);
+        }
+    }
+
+    function requisitarShape(consulta, retry, callback) {
+        var P = promise;
+        var nbytes = 0;
+        var xhr;
+
+        if (P.abortado)
+            return;
+
+        var url = consulta.url;
+        var params = $.sidra.queryString(consulta.data).slice(1);
+        var cacheKey = url + "&" + params;
+        var cached = geoCache[cacheKey];
+
+        if (cached) {
+            if (cached.done)
+                callback(consulta, cached.data);
+            else
+                cached.queue.push(consulta);
+            return;
+        }
+
+        cached = geoCache[cacheKey] = {
+            data: null,
+            done: false,
+            queue: []
+        };
+
+        function dataLoaded(data) {
+            cached.data = data;
+            cached.done = true;
+            callback(consulta, data);
+            var queue = cached.queue;
+            while (queue.length)
+                callback(queue.shift(), data);
+        }
+
+        var onProgress = function (e) {
+            if (P.abortado) {
+                xhr.abort();
+            }
+            else if (e.loaded) {
+                P.bytes += (e.loaded - nbytes);
+                nbytes = e.loaded;
+                updateLoading(P);
+            }
+        };
+
+        var onLoad = function (e) {
+            if (consulta.binario)
+                dataLoaded(new Uint8Array(xhr.response));
+            else
+                dataLoaded(xhr.responseText);
+        };
+
+        var onError = function () {
+            if (--retry <= 0)
+                return dataLoaded(null);
+            setTimeout(function () {
+                console.log("reexecutando consulta: " + url);
+                executar();
+            }, 5000);
+        };
+
+        function executar() {
+            xhr = new XMLHttpRequest();
+            var dataType = (consulta.binario ? "arraybuffer" : "text");
+
+            if (consulta.post) {
+                xhr.open("POST", url, true);
+                xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            }
+            else {
+                url = cacheKey;
+                params = "";
+                xhr.open("GET", url, true);
+            }
+
+            xhr.setRequestHeader('Accept', '*/*');
+            xhr.responseType = dataType;
+            xhr.onprogress = onProgress;
+            xhr.onload = onLoad;
+            xhr.onerror = onError;
+            xhr.send(params);
+        }
+
+        executar();
+    }
+
+    $(options.target).html(html);
+
+    return {
+        maisAntigo: maisAntigo,
+        maisRecente: maisRecente,
+        niveis: Object.keys(geoCodigoPorNivel),
+        update: atualizarInfo,
+        show: downloadShapes
+    };
+}

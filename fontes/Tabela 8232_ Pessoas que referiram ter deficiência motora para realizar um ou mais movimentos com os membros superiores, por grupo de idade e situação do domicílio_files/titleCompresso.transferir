@@ -1,0 +1,301 @@
+﻿
+// trecho com o código para geração de nomes de abas para o XLSX
+// não ta nada refinado porque fiz na correria. tem bastante margem pra otimização
+(function (globals) {
+    "use strict";
+
+    // default options
+    var defaults = {
+        defaultTitle: "Tabela",
+        defaultIfSingle: false,
+        limit: 31,
+        minSize: 3,
+        separator: "; ",
+        elipsis: "...",
+        align: false
+    };
+
+    var Compressor = globals.TitleCompressor = function (options) {
+        this.options = extend({}, defaults, options || {});
+    };
+
+    Compressor.differentiator = differentiator;
+
+    extend(Compressor.prototype, {
+
+        compress: function (titles) {
+            var T = this,
+                options = T.options,
+                result = null,
+                length = titles.length;
+
+            if (length < (options.defaultIfSingle ? 2 : 1)) {
+                // if the entry is empty, or it's a single entry with "defaultIfSingle" option, use default title
+                result = [options.defaultTitle];
+            }
+            else {
+                // else, try to use the simple method with full names
+                result = T._makeSimpleTitles(titles);
+            }
+
+            if (!result) {
+                // if result is not defined yet, we shoulg optimize the titles
+                var measures = T._calculateMeasures(titles);
+                if (measures) {
+                    // if minimization was successfull, consolidate titles
+                    result = T._minimizeTitles(measures);
+                } else {
+                    // else, if even with optimization the titles could be created, use default titles
+                    result = T._makeDefaultTitles(length);
+                }
+            }
+
+            // return result
+            return result;
+        },
+
+        // make sequential default titles
+        _makeDefaultTitles: function (count) {
+            var def = this.options.defaultTitle,
+                result = [];
+
+            for (var i = 1; i <= count; i++)
+                result.push(def + " " + i);
+
+            return result;
+        },
+
+        // try to create titles by simply concatenating names, returning "false" if it was not possible within limits
+        _makeSimpleTitles: function (titles) {
+            var T = this,
+                options = T.options,
+                separator = options.separator,
+                result = titles.slice(),
+                max = 0, c, title;
+
+            for (c = result.length; c--;) {
+                title = result[c].join(separator);
+                result[c] = title;
+                max = Math.max(max, title.length);
+            }
+
+            return (max < options.limit && result);
+        },
+
+        // minimize titles by calculated measures
+        _minimizeTitles: function (measures) {
+            measures = measures.slice();
+
+            for (var i = measures.length; i--;) {
+                var measure = measures[i];
+
+                if (!measure.fixed)
+                    this._minimizeMeasure(measure);
+
+                measures[i] = this._consolidateTitle(measure);
+            }
+
+            return measures;
+        },
+
+        // consolidate a title by applying the minimized measures
+        _consolidateTitle: function (measure) {
+            var options = this.options,
+                elipsis = options.elipsis,
+                result = measure.fields.slice(),
+                field, text, i;
+
+            for (i = result.length; i--;) {
+                field = result[i];
+                text = field.text;
+
+                if (field.minimized)
+                    text = text.slice(0, field.size - elipsis.length) + elipsis;
+
+                result[i] = text;
+            }
+
+            return result.join(options.separator);
+        },
+
+        // using calculared measures for a title, minimize it's fields
+        _minimizeMeasure: function (measure) {
+            var limit = this.options.limit,
+                fields = measure.fields.slice(),
+                count = fields.length,
+                field, i, tmp;
+
+            // remove from minimization fields which can't be minimized
+            for (i = count; i--;) {
+                field = fields.shift();
+                if (field.size > field.minimum)
+                    fields.push(field);
+                else
+                    count--;
+            }
+
+            // descending sort fields by sizes
+            fields.sort(function (a, b) {
+                return b.size - a.size;
+            });
+
+            // while the measure is bigger than minimum size, execute a minimization step
+            while (measure.size > limit && count) {
+                // **** "count" condition doesn't need to be checked if previous steps of compression were correct, but I didn't revise it yet
+                // get biggest field and decrement counters by 1
+                field = fields[0];
+                field.minimized = true;
+                field.size--;
+                measure.size--;
+
+                if (field.size <= field.minimum) {
+                    // if field reached it's minimum possible size, remove from list
+                    fields.shift();
+                    count--;
+                }
+                else {
+                    // else, sort field to it's new position using a single bubble-sort step
+                    for (i = 0; i < count - 1 && fields[i].size < fields[i + 1].size; i++) {
+                        tmp = fields[i];
+                        fields[i] = fields[i + 1];
+                        fields[i + 1] = tmp;
+                    }
+                }
+            }
+        },
+
+        // extract measures from title fields
+        _calculateMeasures: function (titles) {
+            var options = this.options,
+                minimum = options.minSize,
+                elipsisLength = options.elipsis.length,
+                separatorLength = options.separator.length,
+                limit = options.limit,
+                //
+                nTitles = titles.length,
+                nFields = titles[0].length,
+                measures = [],
+                fixedChars = [],
+                impossible = false,
+                i, c;
+
+            for (c = 0; c < nFields; c++) {
+                var fields = extractFields(titles, c);
+                var fixed = Math.max(minimum, differentiator(fields));
+                fixedChars.push(fixed);
+            }
+
+            for (i = 0; i < nTitles && !impossible; i++) {
+                var cab = titles[i];
+
+                var measure = {
+                    index: i,
+                    fields: [],
+                    size: 0,
+                    fixed: false
+                };
+
+                var size = (nFields - 1) * separatorLength;
+                var minSize = size;
+
+                for (c = 0; c < nFields; c++) {
+                    var text = cab[c],
+                        nchars = text.length;
+
+                    var delta = Math.max(0, nchars - fixedChars[c]),
+                        isFixed = (delta <= elipsisLength), // a reduction must at least overcome the length of the elipsis
+                        fieldMin = (isFixed ? nchars : fixedChars[c] + elipsisLength); // calculate the minimum possible size for the field
+
+                    var field = {
+                        measure: measure,
+                        text: text,
+                        size: nchars,
+                        minimum: fieldMin,
+                        minimized: false
+                    };
+
+                    measure.fields.push(field);
+
+                    // update title measure size and minSize
+                    size += nchars;
+                    minSize += fieldMin;
+                }
+
+                // check if title measure is within limits and can be fixed, and then push to list
+                measure.size = size;
+                measure.fixed = (size <= limit);
+                measures.push(measure);
+
+                // if the minimum possible size is bigger than limit, it's impossible to minimize titles
+                impossible |= (minSize > limit);
+            }
+
+            // return false if minimization is impossible, else, return the measures
+            return (!impossible && measures);
+        }
+
+
+
+    });
+
+    // ************************************************************************************************************************
+
+    // extract fields from a given position of titles
+    function extractFields(titles, position) {
+        var result = [];
+        for (var i = titles.length; i--;)
+            result.push(titles[i][position]);
+        return result;
+    }
+
+    // check the minimum number of chars to fully distinguish between all fields of titles at a given position
+    function differentiator(names) {
+        // remove repetitions using an object as hashset
+        var fields = {};
+        for (var i = names.length; i--;)
+            fields[names[i]] = 1;
+
+        // overwrite hashset with an array of it's keys
+        fields = keys(fields);
+
+        // iterate though all fields to get the maximum number of differentiator chars
+        var max = 0;
+        for (var i = fields.length; i--;)
+            for (var j = 0; j < i; j++)
+                max = Math.max(max, equalChars(fields[i], fields[j]));
+
+        // retorna o número de caracteres necessários para distinguir os elementos
+        return max;
+    }
+
+    // check how many chars are required to fully distinguish between 2 strings (we already know they are different)
+    function equalChars(str1, str2) {
+        for (var i = 0; ; i++)
+            if (i == str1.length || i == str2.length || str1[i] != str2[i])
+                return i + 1;
+    }
+
+    // return an array with the keys of an object
+    function keys(obj) {
+        var result = [], key;
+        for (key in obj)
+            result.push(key);
+        return result;
+    }
+
+    // extend an object with one or more objects properties
+    function extend(dst, _) {
+        var args = arguments,
+            length = args.length,
+            src, i, key;
+
+        for (i = 1; i < length; i++) {
+            src = args[i];
+            for (key in src)
+                dst[key] = src[key];
+        }
+
+        return dst;
+    }
+
+})(this);

@@ -1,0 +1,754 @@
+﻿(function ($) {
+
+
+    function SidraValidators() {
+
+    }
+
+    function SidraFilters() {
+
+    }
+
+    var template = '\
+    <h6 class="validation-error" style="display: block;">\
+        <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>\
+        <span class="sr-only">Error:</span>\
+        <span class="message"></span>\
+    </h6>';
+
+    var templateFormError = '\
+    <div class="alert alert-danger" role="alert">\
+        <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>\
+        <span class="sr-only">Error:</span>\
+        <span class="message"></span>\
+    </div>';
+
+    var regex_substituir = /\{(\d+)\}/gm;
+    ReplaceParameter = function (texto, _) {
+        var args = arguments;
+        return texto.replace(regex_substituir, function (match, i) {
+            var value = args[Number(i) + 1];
+            return (value !== $undefined ? value : match);
+        });
+    }
+
+    $.extend(SidraValidators.prototype, {
+        RequiredMessage: "O campo {0} é obrigatório.",
+        StringLengthMessage: "length message",
+        EmailMessage: "mail message",
+        EqualTOMessage: "equalto message",
+        CaptchMessage: "Marque a opção 'Não sou um Robô'",
+        LoginRedeMessage: "O campo {0} é inválido",
+
+        _teste: function () { },
+
+        Required: function (field, value) {
+            if (value == null || value == "") {
+                return this.RequiredMessage;
+            }
+
+            return null;
+        },
+
+        Length: function (field, value, min, max) {
+            if (value == null) {
+                return this.StringLengthMessage;
+            }
+
+            if (value.length < min || value.length > max) {
+                return this.StringLengthMessage;
+            }
+
+            return null;
+        },
+
+        LoginRede: function (field, value, parameters, form) {
+            var exp = /^[a-zA-Z0-9\\_\\.\\-]*$/i;
+
+            if (value && !exp.test(value)) {
+                var label = $(form).find("label[for='" + field + "']").text();
+                var message = this.LoginRedeMessage;
+
+                message = message.replace("{0}", label);
+
+                return message;
+            }
+
+            return null
+        },
+
+        Email: function (field, value) {
+            var exp = /^[-a-z0-9~!$%^&*_=+}{\'?]+(\.[-a-z0-9~!$%^&*_=+}{\'?]+)*@([a-z0-9_][-a-z0-9_]*(\.[-a-z0-9_]+)*\.(aero|arpa|biz|com|coop|edu|globo|gov|info|int|mil|museum|name|net|org|pro|travel|mobi|[a-z][a-z])|([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}))(:[0-9]{1,5})?$/i;
+
+            if (value && !exp.test(value)) {
+                return this.EmailMessage;
+            }
+
+            return null
+        },
+
+        EmailNaoIBGE: function (field, value) {
+            var suffix = "@ibge.gov.br";
+                
+            if (!value) {
+                return null;
+            }
+
+            var test = value.indexOf(suffix, value.length - suffix.length) !== -1;
+
+            if (test) {
+                return "Cadastro com e-mail IBGE não permitido";
+            }
+
+            return null
+        },
+
+        EqualTO: function (field, value, other, target) {
+            var otherValue = $(target).find("[name='" + other + "']").val();
+
+            if (value != otherValue) {
+                return this.EqualTOMessage;
+            }
+
+            return null;
+        },
+
+        Captcha: function (field, value, other, target) {
+            if (typeof (grecaptcha) !== 'undefined') {
+                captcha = grecaptcha.getResponse();
+
+                if (!captcha) {
+                    return this.CaptchMessage;
+                }
+            } else {
+                return this.CaptchMessage;
+            }
+            
+            return null;
+        }
+    });
+
+    $.extend(SidraFilters.prototype, {
+        
+        Trim: function(value) {
+            if (value == null) {
+                return "";
+            }
+
+            return value.trim();
+        },
+
+        Lowercase: function (value) {
+            if (value == null) {
+                return "";
+            }
+
+            return value.toLowerCase();
+        },
+
+        Int: function (value) {
+            var ret = "";
+            for (var i = 0; i < value.length; i++)
+            {
+                var ch = parseInt(value[i]);
+
+                if (ch >= 0 && ch < 10)
+                {
+                    ret += ("" + ch);
+                }
+            }
+
+            return ret;
+        },
+
+        Uppercase: function (value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value.toUpperCase();
+    }
+    });
+
+    function SidraValidator() {
+
+        this._defaults = {
+            'onSubmit': '',
+            'firstSubmit': true,
+            'ajax': false,
+            'submitListener': null,
+            'submitListenerParameters': null,
+            'formUpload': false,
+
+            'onSubmitListener': function () { },
+            'onError': function () { },
+            'onSubmitParameters': {},
+            'onErrorParameters': {},
+            'extraFormData': "",
+            'waitThreads': 0
+        }
+
+    }
+
+    $.extend(SidraValidator.prototype, {
+        styleClass: 'sidra-validator',
+        propertyName: 'optionsSidraValidator',
+        markerClassName: 'sidra-validator-start',
+        valid: false,
+
+        _applyError: function (target, field, rule, errorMessage) {
+            var $errorElement = $(target).find("[data-validator-for='" + field + "']");
+            var $valueElement = $(target).find("[name='" + field + "']");
+            var defaultMessage = $valueElement.data('val-' + rule.toLowerCase());
+
+            if (defaultMessage) {
+                errorMessage = defaultMessage;
+            } else {
+                var arg0 = target.find("label[for='" + field + "']").html();
+
+                if (arg0) {
+                    errorMessage = errorMessage.replace("{0}", arg0);
+                }
+            }
+
+            $errorElement.html("");
+            $(template).appendTo($errorElement).find('.message').html(errorMessage);
+        },
+
+        _applyFormError: function (target, errorMessage) {
+            var $errorElement = $(target).find(".sidra-form-error");
+
+            $errorElement.html("");
+            $(templateFormError)
+                .appendTo($errorElement)
+                .find('.message')
+                .html(errorMessage);
+        },
+
+        _removeFormError: function (target) {
+            var $errorElement = $(target).find(".sidra-form-error");
+            $errorElement.html("");
+        },
+
+        _applyErrorSidraValidatorPlugin: function (target, error) {
+            var $errorElement = $(target).find("[data-validator-for='" + error.field + "']");
+            var $valueElement = $(target).find("[name='" + error.field + "']");
+
+            $errorElement.html("");
+            $(template).appendTo($errorElement).find('.message').html(error.message);
+        },
+
+        _clearErrorsSidraValidatorPlugin: function (target, field) {
+            $errorElement = $(target).find("[data-validator-for]");
+            $errorElement.html("");
+        },
+
+        _clearErrors: function(target)
+        {
+            var validatorsFields = this._paramSidraValidatorPlugin(target, "validations");
+
+            this._removeFormError(target);
+            for (var field in validatorsFields) {
+                this._clearErrorsSidraValidatorPlugin(target, field);
+            }
+
+        },
+
+        _clearError: function (target, field) {
+            $errorElement = $(target).find("[data-validator-for='" + field + "']");
+
+            $errorElement.html("");
+        },
+
+        _createFilter: function (target, field, component) {
+            var filterFields = this._paramSidraValidatorPlugin(target, "filters");
+            var filterFunctions = this._paramSidraValidatorPlugin(target, "filterFunctions");
+            var valid = true;
+            var filterField = filterFields[field]
+
+            var $inputElement = $(target).find("[name='" + field + "']");
+            for (var keyFilterField in filterField) {
+                var values = filterField[keyFilterField];
+                var func = filterFunctions[keyFilterField];
+
+                if (func && typeof (func.call) === 'function') {
+
+                    $inputElement.change({
+                        func : func
+                    }, function (e) {
+                        var func = e.data.func;
+                        var value = $(this).val();
+                        
+                        var parameters = [value];
+                        value = func.call.apply(func.context, parameters);
+                        $(this).val(value);
+                    });
+
+                } else {
+                    throw 'Validator not found: ' + keyFilterField;
+                }
+            }
+
+
+            return valid;
+        },
+
+        _createMonitor: function (target, field, component) {
+            var onSubmit = this._paramSidraValidatorPlugin(target, 'onSubmit');
+            
+            if (onSubmit == 'validate-on-focus-out') {
+                var first = $(component).get(0);
+
+                if (!first) {
+                    return;
+                }
+
+                var tagName = first.tagName.toLowerCase();
+
+                if (tagName == 'input' || tagName == 'textarea' || tagName == 'select') {
+                    var params = {
+                        objThis: this,
+                        target: target,
+                        field: field,
+                        component: component
+                    };
+
+                    $(component).focusout(params, function (evt) {
+                        var objThis = evt.data.objThis;
+                        var target = evt.data.target;
+                        var component = evt.data.component;
+                        var firstSubmit = objThis._paramSidraValidatorPlugin(target, 'firstSubmit');
+
+                        if (firstSubmit) {
+                            return;
+                        }
+
+                        var value = $(component).val();
+                        objThis._focusout(target, field, value);
+                    });
+                }
+            }
+
+        },
+
+        _focusout: function (target, field, value) {
+            this._validateFieldSidraValidatorPlugin(target, field);
+        },
+
+        _waitSidraValidatorPlugin: function (target) {
+            var waitThreads = this._paramSidraValidatorPlugin(target, 'waitThreads');
+
+            this._optionSidraValidatorPlugin(target, {
+                'waitThreads': waitThreads + 1
+            });
+
+            var objThis = this;
+            return function () {
+                var waitThreads = objThis._paramSidraValidatorPlugin(target, 'waitThreads');
+                waitThreads--;
+
+                if (waitThreads == 0) {
+                    var waitComplete = objThis._paramSidraValidatorPlugin(target, 'waitComplete');
+                    waitComplete();
+                }
+
+                objThis._optionSidraValidatorPlugin(target, {
+                    'waitThreads': waitThreads
+                });
+            }
+        },
+
+        _valuesSidraValidatorPlugin: function (target, param) {
+            var objThis = this;
+
+            if (typeof param === 'string') {
+                $.ajax({
+                    type: "GET",
+                    url: param
+                }).fail(function () {
+                    alert('Falha ao obter dados.')
+                }).done(function (data) {
+                    objThis._loadValues(target, data);
+                });
+            } else {
+                objThis._loadValues(target, param);
+            }
+        },
+
+        _loadValues: function (target, data) {
+            for (var k in data) {
+                var v = data[k];
+
+                var comp = target.find("[name='" + k + "']");
+                var tagname = comp.prop("tagName");
+
+                if (!tagname) {
+                    continue;
+                }
+
+                tagname = tagname.toLowerCase().trim();
+
+                if (tagname == 'input') {
+                    var type = comp.attr("type");
+
+                    if (!type) {
+                        continue;
+                    }
+
+                    type = type.toLowerCase().trim();
+
+                    if (type == 'radio') {
+                        for (var i = 0; i < comp.length; i++) {
+                            var c = comp[i];
+                            var compVal = $(c).val();
+
+                            if (compVal == v) {
+                                $(c).attr('checked', true);
+                            } else {
+                                $(c).attr('checked', false);
+                            }
+
+                            $(c).trigger("change");
+                        }
+                    } else {
+                        comp.val(v).trigger("change");
+                    }
+                } else if (tagname == 'select') {
+                    if (typeof (v) === 'string') {
+                        v = [v];
+                    }
+
+                    $(v).each(function (i, av) {
+                        comp.find("option[value='" + av + "']")
+                            .attr("selected", "selected");
+                    });
+
+                    comp.trigger("change");
+                } else if (tagname == 'textarea') {
+                    comp.html(v);
+                }
+
+            }
+        },
+
+        _submit: function (evt) {
+            var objThis = evt.data["objThis"];
+            var target = evt.data["target"];
+            var submitListener = objThis._paramSidraValidatorPlugin(target, "submitListener");
+            var submitListenerParameters = objThis._paramSidraValidatorPlugin(target, "submitListenerParameters");
+
+            var valid = objThis._validateSidraValidatorPlugin(target);
+            if (!valid) {
+                evt.preventDefault();
+            } else if (submitListener) {
+                evt.preventDefault();
+                submitListener(evt, submitListenerParameters);
+            }
+
+            objThis._optionSidraValidatorPlugin(target, {
+                'firstSubmit' : false
+            });
+        },
+
+        _submitAjax: function (evt) {
+            var objThis = evt.data["objThis"];
+            var target = evt.data["target"];
+            var onSubmit = objThis._paramSidraValidatorPlugin(target, "onSubmitListerner");
+            var onError = objThis._paramSidraValidatorPlugin(target, "onError");
+            var formUpload = objThis._paramSidraValidatorPlugin(target, "formUpload");
+            var onSubmitParameters = objThis._paramSidraValidatorPlugin(target, "onSubmitParameters");
+            var onErrorParameters = objThis._paramSidraValidatorPlugin(target, "onErrorParameters");
+            var extraFormData = objThis._paramSidraValidatorPlugin(target, "extraFormData");
+
+            var valid = objThis._validateSidraValidatorPlugin(target);
+            evt.preventDefault();
+
+            if (valid && onSubmit) {
+                var action = $(target).attr('action');
+
+                if (extraFormData) {
+                    extraFormData += "&" + (target).serialize();
+                } else {
+                    extraFormData = $(target).serialize();
+                }
+
+                var conf = {
+                    type: "POST",
+                    url: action
+                };
+
+                if (formUpload) {
+                    conf.enctype = 'multipart/form-data';
+                    conf.processData = false;
+                    conf.contentType = false;
+                    conf.cache = false;
+
+                    var data = new FormData();
+                    var $file = target.find('[type="file"]');
+
+                    if ($file.length > 0) {
+                        $.each($file[0].files, function (i, file) {
+                            var name = $(this).attr('name');
+                            data.append(name, file);
+                        });
+                    }
+
+                    var serData = $(target).serializeArray();
+                    for (var i = 0; i < serData.length; i++)
+                    {
+                        var k = serData[i].name;
+                        var v = serData[i].value;
+
+                        data.append(k, v);
+                    }
+
+                    conf.data = data; 
+                } else {
+                    conf.data = extraFormData;
+                }               
+
+                $("html").SidraLoading();
+                $.ajax(conf)
+                .fail(function () {
+                    $("html").SidraLoading("hide");
+                    alert('Falha ao executar operação.');
+                }).done(function (data) {
+
+                    objThis._clearErrors(target);
+
+                    if (data.response == 0) {
+                        onSubmit(evt, onSubmitParameters, $(target).serializeArray(), data);
+                    } else {
+                        if (data.error) {
+                            objThis._applyFormError(target, data.error);
+                        }
+
+                        if (data.errors) {
+                            for (var i = 0; i < data.errors.length; i++) {
+                                var error = data.errors[i];
+
+                                objThis._applyErrorSidraValidatorPlugin(target, error);
+                            }
+                        }
+
+                        
+                        onError(evt, onErrorParameters, $(target).serializeArray(), data.data);
+                    }
+
+                    $("html").SidraLoading("hide");
+                });
+            }
+
+            objThis._optionSidraValidatorPlugin(target, {
+                'firstSubmit': false
+            });
+        },
+
+        _createMonitors: function (target) {
+            var validatorsFields = this._paramSidraValidatorPlugin(target, "validations");
+            var ajax = this._paramSidraValidatorPlugin(target, "ajax");
+
+            for (var field in validatorsFields) {
+                var $inputElement = $(target).find("[name='" + field + "']");
+                this._createMonitor(target, field, $inputElement);
+            }
+
+            var filtersFields = this._paramSidraValidatorPlugin(target, "filters");
+            for (var field in filtersFields) {
+                var $inputElement = $(target).find("[name='" + field + "']");
+
+                this._createFilter(target, field, $inputElement);
+            }
+
+            var params = {
+                objThis: this,
+                target: target
+            };
+
+            if (ajax) {
+                $(target).submit(params, SidraValidator.prototype._submitAjax);
+            } else {
+                $(target).submit(params, SidraValidator.prototype._submit);
+            }
+        },
+
+        _validateFieldSidraValidatorPlugin: function (target, field) {
+            var validatorsFields = this._paramSidraValidatorPlugin(target, "validations");
+            var validatorFunctions = this._paramSidraValidatorPlugin(target, "validatorFunctions");
+            var valid = true;
+            var validatorField = validatorsFields[field]
+
+            var $inputElement = $(target).find("[name='" + field + "']");
+
+            if ($inputElement.length > 1) {
+                $inputElement = $($inputElement[0]);
+            }
+
+            var type = $inputElement.attr('type');
+            var value = null;
+            if (type && type.toLowerCase() == 'radio')
+            {
+                var name = $inputElement.attr('name');
+
+                target.find("[name=" + name + "]").each(function () {
+                    if ($(this).is(':checked')) {
+                        value = $(this).val();
+                    }
+                });
+            } else {
+                value = $inputElement.val();
+            }
+
+            var $errorElement = $(target).find("[data-validator-for='" + field + "']");
+
+            for (var keyValidatorField in validatorField) {
+                var values = validatorField[keyValidatorField];
+
+                var func = validatorFunctions[keyValidatorField];
+
+                if (func && typeof (func.call) === 'function') {
+                    var parameters = [field, value].concat(values).concat([target]);
+                    var errorMessage = func.call.apply(func.context, parameters);
+
+                    if (errorMessage != null) {
+                        valid = false;
+                        this._applyError(target, field, keyValidatorField, errorMessage);
+                        break;
+                    } else {
+                        this._clearError(target, field);
+                    }
+
+                } else {
+                    throw 'Validator not found: ' + keyValidatorField;
+                }
+            }
+            
+
+            return valid;
+        },
+
+        _validateSidraValidatorPlugin: function (target) {
+            var validatorsFields = this._paramSidraValidatorPlugin(target, "validations");
+            var validatorFunctions = this._paramSidraValidatorPlugin(target, "validatorFunctions");
+            var valid = true;
+
+            for (var field in validatorsFields) {
+                var fieldValid = this._validateFieldSidraValidatorPlugin(target, field);
+
+                if (!fieldValid) {
+                    valid = false;
+                }
+            }
+
+            target.valid = valid;
+
+            return valid;
+        },
+
+        _registerSidraValidatorPlugin: function (target, validators) {
+            var validatorFunctions = {};
+            for (var k in validators) {
+                var validator = validators[k];
+
+                if (typeof validator == "function" && k[0] != '_') {
+                    validatorFunctions[k] = {
+                        'context': validators,
+                        'call': validator
+                    };
+                }
+            }
+
+            var paramValidators = this._paramSidraValidatorPlugin(target, 'validatorFunctions');
+
+            if (paramValidators != null) {
+                $.extend(validatorFunctions, paramValidators);
+            }
+
+            this._optionSidraValidatorPlugin(target, {
+                'validatorFunctions': validatorFunctions
+            });
+        },
+
+        _registerSidraFiltersPlugin: function (target, filters) {
+            var filterFunctions = {};
+            for (var k in filters) {
+                var filter = filters[k];
+
+                if (typeof filter == "function" && k[0] != '_') {
+                    filterFunctions[k] = {
+                        'context': filters,
+                        'call': filter
+                    };
+                }
+            }
+
+
+            var paramFilters = this._paramSidraValidatorPlugin(target, 'filterFunctions');
+
+            if (paramFilters != null) {
+                $.extend(filterFunctions, paramFilters);
+            }
+
+            this._optionSidraValidatorPlugin(target, {
+                'filterFunctions': filterFunctions
+            });
+        },
+
+        _paramSidraValidatorPlugin: function (target, key) {
+            var inst = target.data(this.propertyName);
+
+            if (!inst) {
+                return null;
+            }
+
+            var options = inst.options;
+
+            return options[key];
+        },
+
+        _optionSidraValidatorPlugin: function (target, options) {
+            var inst = target.data(this.propertyName);
+            $.extend(inst.options, options);
+
+            return target;
+        },
+
+        _attachSidraValidatorPlugin: function (target, options) {
+            // Verifica se o monitor já foi inicializada
+            if (target.hasClass(this.markerClassName)) {
+                return;
+            }
+
+            // estende as opcoes padrão 
+            var inst = { "options": $.extend(true, {}, this._defaults, options) };
+            inst.element = target;
+            target.data(this.propertyName, inst);
+
+            this._registerSidraValidatorPlugin(target, new SidraValidators());
+            this._registerSidraFiltersPlugin(target, new SidraFilters());
+
+            this._createMonitors(target);
+
+            return target;
+        }
+
+
+    });
+
+    $.fn.sidraValidator = function (options, arg1) {
+        if (typeof options == 'string') {
+            if (!sidraValidatorPlugin['_' + options + 'SidraValidatorPlugin']) {
+                throw 'Método não encontrado: ' + options;
+            }
+
+            return sidraValidatorPlugin['_' + options + 'SidraValidatorPlugin'].call(sidraValidatorPlugin, this, arg1);
+        } else {
+            sidraValidatorPlugin._attachSidraValidatorPlugin(this, options || {});
+        }
+
+        return this;
+    };
+
+    var sidraValidatorPlugin = $.sidraValidator = new SidraValidator();
+
+})(jQuery);

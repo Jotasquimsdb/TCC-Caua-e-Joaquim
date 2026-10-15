@@ -1,0 +1,1125 @@
+﻿(function ($, $undefined) {
+
+    "use strict";
+
+    // define algumas variáveis para criação de IDs sequenciais, caso o usuário não especifique nenhum
+    var idCounter = 7000; // um número qualquer para iniciar o contador
+    var idPreffix = "janela_"; // prefixo para os IDs automáticos
+
+    // 
+    var plugin = null;
+    var propertyName = 'janela';
+    var regexp_hash = /#([\w_-]*)$/;
+    var regexp_removeHash = /^([^#]*)/;
+
+    // nomes das classes css
+    var classes = {
+        window: 'janela',
+        titleAria: 'janela-aria',
+        titleBar: 'janela-comandos',
+        title: 'janela-titulo',
+        header: 'janela-header',
+        order: 'janela-order',
+        footer: 'janela-footer',
+        options: 'janela-options',
+        hidden: 'hidden',
+        //
+        buttons: 'janela-buttons',
+        border: 'janela-borda-dados',
+        contents: 'janela-dados',
+        //
+        titleNowrap: 'nowrap',
+        titleBoth: 'both',
+        //
+        maximized: "janela-maximize",
+        maximizedScroll: "scroll",
+        maximixedFixed: "fixed",
+        // classes dos botões padrão
+        btn: 'janela-btn',
+        btnPrint: 'janela-button-print',
+        btnMaximize: 'janela-button-maximize',
+        //
+        dropdownItem: 'janela-dropdown-item'
+    };
+
+    // string que define o template para o conteúdo da janela
+    var templateWindow = [
+        "<div class='panel'>",
+            "<div class='" + classes.titleBar + " panel-heading'>",
+                "<label class='" + classes.titleAria + " sr-only'></label>",
+                "<div class='" + classes.buttons + "'></div>",
+                "<div class='" + classes.title + "'></div>",
+            "</div>",
+        "<div class='" + classes.header + " hidden'></div>", // sempre começa como "hidden"
+        "<div class='" + classes.order + " hidden'></div>", // sempre começa como "hidden"
+            "<div class='" + classes.border + " panel-body'>",
+                "<div class='" + classes.contents + "'></div>",
+            "</div>",
+            "<div class='" + classes.footer + "'></div>",
+        "</div>",
+    ].join("");
+
+    // quando o título for um texto, encapsular em um elemento "<h3>"
+    function wrapTextTitle(text) {
+        return "<h3 class='panel-title'>" + text + "</h3>"
+    }
+
+    // função própria para executar templates {key: value}, evitando dependência com o $.tmpl mas mantendo a compatibilidade
+    var tmplMatch = /\$\{[^\}]+\}/gm;
+    function tmpl(template, params) {
+        return (template || "").replace(tmplMatch, function (match) {
+            var text = match.slice(2, -1); // remove as chaves delimitadoras
+            var data = params[text];
+            return (data === $undefined ? match : data); // se não encontrar, retorna o match sem alteração
+        });
+    }
+
+    // função vazia, para facilitar a chamada de métodos
+    function nullFunc() {
+        //
+    }
+
+    function endsWith(text, str) {
+        return (text.indexOf(str, text.length - str.length) >= 0);
+    }
+
+    // DEPOIS SCREVER COMO CADA MODO FUNCIONA
+    var styleModes = "|default|primary|clear|";
+    var resizeModes = "|none|always|auto|";
+    var maximizedModes = "|full|scroll|fixed|";
+    var titleModes = "|wrap|nowrap|both|";
+
+
+    // helper contendo nomes de partes relevantes da janela, para simplificar a criação do html ali embaixo
+    var windowComponents = ["titleBar", "titleAria", "title", "buttons", "header", "order", "border", "contents", "footer"];
+
+    // helper para simplificar o processamento dos callbacks
+    var windowCallbacks = ["onHeaderLoad", "onOrderLoad", "onFooterLoad", "onHide", "onShow", "onMaximize", "onMinimize", "onResize", "onCollapse"];
+
+    // construtor do plugin de janela
+    function Janela() {
+        this.defaults = {
+            id: null,
+            aria: "",
+            style: "default", // "default", "primary"
+            titulo: '&nbsp;',
+            collapsible: false,
+            resize: "auto", // "none", "always", "auto"
+            maximizedMode: "full", // "full", "scroll", "fixed"
+            titleMode: "both", // "wrap", "nowrap", "both"
+            visible: true,
+            // propriedades relacionadas ao callback de eventos
+            // (OS CALLBACKS SERÃO PROCESSADOS PELO HELPER ALI DE CIMA)
+            context: null, // contexto de chamada dos callbacks (variavel "this"). se indefinido, usa-se o elemento da janela
+            // url atual da página
+            url: location.href,
+            // define os botões. cada entrada do array pode ser um string com o nome, ou
+            // um objeto {name, label, event} pra sobrescrever o comportamento padrão
+            buttons: [],
+            /*
+             * Opção para atualização da URL quando a janela é maximizada. 
+             * 
+             * Se esta opção for ativada, o atributo 'id' da janela será utilizado
+             * como complemento através da url para que o endereço da janela
+             * maximizado seja único.
+             * 
+             * O endereço da janela maximizada será como a seguir:
+             * /home/ipca/#quadro-q1
+             */
+            urlRefresh: false,
+            /**
+             * Maximiza a janela quando a url da página possui referência para a tabela
+             * 
+             * O exemplo a seguir maximizará a janela com id 'quadro-q1'
+             * /home/ipca/#quadro-q1
+             */
+            urlRefreshMaximize: false
+        };
+
+        // configurações dos botões padrão
+        this.defaultButtons = {
+            "header": {
+                icon: "glyphicon glyphicon-list-alt",
+                label: "Mostrar cabeçalho da janela",
+                push: false,
+                event: "toggleHeader"
+            },
+            "print": {
+                icon: classes.btnPrint + " glyphicon glyphicon-print",
+                label: 'Imprimir conteúdo da janela',
+                push: false,
+                event: "print"
+            },
+            "maximize": {
+                icon: classes.btnMaximize + " glyphicon glyphicon-resize-full",
+                label: 'Expandir/reduzir janela',
+                push: false,
+                event: "toggleMaximize"
+            },
+            "close": {
+                icon: "glyphicon glyphicon-remove",
+                label: 'Fechar janela',
+                push: false,
+                event: "hide"
+            },
+            "order": {
+                icon: "glyphicon glyphicon-list-alt",
+                label: 'Ordenar por colunas',
+                push: false,
+                event: "toggleOrder"
+            }
+
+        };
+        // objeto que salva o estado da janela antes de maximizar, para restaurar depois
+        // (evita alguns problemas com rolagem de página, principalmente em mobile)
+        this.maximizeData = {
+            scrollTop: 0,
+            insts: {},
+            count: 0
+        };
+        // seta o listener de mudança de hash
+        var that = this;
+        $(window).on("hashchange", this.evtHashChange);
+    }
+
+    $.extend(Janela.prototype, {
+
+        attachPlugin: function (target, options) {
+            // processa as opções recebidas
+            options = this.processOptions(options);
+
+            // cria as propriedades da instância
+            var inst = {
+                id: (options.id || target.attr('id') || idPreffix + (idCounter++)), // prioridade na definição do ID: opções > elemento > automático
+                element: target,
+                options: options,
+                context: (options.context || target),
+                html: null,
+                //
+                buttons: options.buttons.slice(0),
+                buttonMap: {}, // mapa dos botoes por nome
+                //
+                resize: (options.resize || "auto"),
+                resizeListener: null
+            };
+
+            // processa a lista de botões e cria o html da janela
+            this.processButtons(inst);
+            this.createHtml(inst);
+
+            // se o modo de redimensionamento for "always", já cria o listener
+            if (inst.resize === "always")
+                this.createResizeListener(inst);
+
+            // senão, se for para criar escondido, esconde o elemento
+            if (options.visible == false)
+                this._hide(inst);
+
+            // prepara a atualização de URL para tela cheia
+            if (options.urlRefreshMaximize)
+                $(document).ready(this.checkStartupMaximize(inst));
+
+            // encadeamento de objeto
+            return target;
+        },
+
+        processOptions: function (options) {
+            // estende as opcoes padrão
+            options = $.extend(true, {}, this.defaults, options);
+
+            // conserta os callbacks (colocando nulo se não for função)
+            this.fixCallbacks(options);
+
+            // processa o estilo do panel
+            var windowStyle = (options.style || "default");
+            if (styleModes.indexOf("|" + windowStyle + "|") < 0)
+                throw 'Estilo de janela não reconhecido: "' + windowStyle + '"';
+            options.style = windowStyle;
+
+            // processa o estilo do título
+            var titleMode = (options.titleMode || "both");
+            if (titleModes.indexOf("|" + titleMode + "|") < 0)
+                throw 'Estilo de título não reconhecido: "' + titleMode + '"';
+            options.titleMode = titleMode;
+
+            // processa os modos de redimensionamento
+            var resizeMode = (options.resize || "auto");
+            if (resizeModes.indexOf("|" + resizeMode + "|") < 0)
+                throw 'Modo de redimensionamento não reconhecido: "' + resizeMode + '"';
+            options.resize = resizeMode;
+
+            // processa os modos de tela cheia
+            var maximizedMode = (options.maximizedMode || "full");
+            if (maximizedModes.indexOf("|" + maximizedMode + "|") < 0)
+                throw 'Modo de redimensionamento não reconhecido: "' + maximizedMode + '"';
+
+            // se o modo de resize for "auto" e o modo em tela cheia fixo, define resize como "maximized" (modo não acessível ao usuário)
+            if (options.resize === "auto")
+                options.resize = (maximizedMode == "scroll" || maximizedMode == "fixed" ? "maximized" : "none");
+            //
+            return options;
+        },
+
+        fixCallbacks: function (options) {
+            for (var i = windowCallbacks.length; i--;) {
+                var name = windowCallbacks[i];
+                var callback = options[name];
+                if (!$.isFunction(callback))
+                    options[name] = null;
+            }
+        },
+
+        createResizeListener: function (inst) {
+            inst.resizeListener = UI.addResizeListener({
+                "target": inst.element,
+                "onResize": resizePanelBody,
+                "context": inst
+            });
+        },
+
+        removeResizeListener: function (inst) {
+            inst.resizeListener.now();
+            inst.resizeListener.remove();
+        },
+
+        updateResizeListener: function (inst) {
+            inst.resizeListener.now(true);
+        },
+
+        processButtons: function (inst) {
+            var nButtons = inst.buttons.length;
+
+            for (var i = 0; i < nButtons; i++) {
+                // pega o elemento de objeto e o nome associado
+                var botao = inst.buttons[i];
+
+                // se o botão for string, cria um objeto apenas com seu nome
+                if (typeof botao === "string")
+                    botao = { "name": botao };
+
+                // verifica se é um botão padrão
+                var padrao = this.defaultButtons[botao.name];
+
+                if (padrao) {
+                    // se for um botão padrão, o estende com o objeto recebido
+                    botao = $.extend({}, padrao, botao);
+                    botao.user = false;
+                }
+                else {
+                    // botão não encontrado. é um botão de usuário
+                    botao = $.extend({}, botao); // realiza uma cópia, pra não haver conflito caso o usuário use as mesmas opções para várias janelas
+                    botao.user = true;
+                }
+
+                // sobrescreve na lista de botões e insere no mapeamento
+                botao.index = i;
+                inst.buttons[i] = botao;
+
+                if (botao.name)
+                    inst.buttonMap[botao.name] = botao;
+            }
+        },
+
+        createHtml: function (inst) {
+            // cria o panel segundo o template
+            var options = inst.options;
+            var panel = $(templateWindow).addClass("panel-" + options.style);
+
+            // cria referências para as partes relevantes do html (usando o helper criado lá em cima)
+            var html = inst.html = { panel: panel };
+            var parts = windowComponents.slice(0);
+            while (parts.length)
+                html[parts[0]] = panel.find("." + classes[parts.shift()]);
+
+            // salva a referência para o conteúdo do alvo, e insere o template no final
+            var wnd = inst.element;
+            var contents = wnd.contents();
+
+            wnd.empty() // *************************
+                .attr("id", inst.id)
+                .addClass(classes.window)
+                .data(propertyName, inst)
+                .append(panel);
+
+            // verifica se o elemento é colapsável
+            if (!options.collapsible) {
+                // se não for colapsável, o conteúdo é preenchido diretamente no container da borda
+                html.body = html.border;
+            }
+            else {
+                // se for colapsável, cria o wrapper "panel-collapse" e insere as componentes do panel nele
+                var collapseId = inst.id + "-collapse";
+                var toggleId = inst.id + "-toggle";
+
+                html.body = $("<div>")
+                    .addClass("panel-collapse collapse in")
+                    .attr("id", collapseId)
+                    .append(html.header, html.order, html.border, html.footer)
+                    .appendTo(html.panel)
+                    .collapse({ toggle: false });
+
+                // cria os toggles de colapsagem
+                html.titleBar.attr("data-toggle", "collapse")
+                    .attr("id", toggleId)
+                    .attr("data-target", "#" + collapseId);
+            }
+
+            // preenche o label de acessibilidade da janela
+            html.titleAria.html(options.aria || "Janela");
+
+            // define o evento de tratamento de cliques na barra de títulos
+            html.titleBar.click(inst, evtTitleBar);
+
+            // define o título e preenche os botões
+            this._title(inst, options.titulo);
+            this.createButtons(inst);
+
+            // processa o estilo do título
+            if (options.titleMode == classes.titleNowrap || options.titleMode == classes.titleBoth)
+                html.titleBar.addClass(options.titleMode);
+
+            // cria o wrapper dos dados, e copia o conteudo do alvo
+            html.contents.append(contents);
+
+            // se permitir rolagem em tela cheia, setar os elementos necessários
+            if (options.maximizedMode == classes.maximizedScroll || options.maximizedMode == classes.maximixedFixed)
+                wnd.addClass(options.maximizedMode);
+
+            // chama o metodo onHeaderLoad, se estiver definido
+            if (options.onHeaderLoad) {
+                var result = options.onHeaderLoad.call(inst.context, wnd);
+                html.header.append(result);
+            }
+            // chama o metodo onRodapeLoad, se estiver definido
+            if (options.onFooterLoad) {
+                var result = inst.options.onFooterLoad.call(inst.context, wnd);
+                html.footer.append(result);
+            }
+            if (options.onOrderLoad) {
+                var result = inst.options.onOrderLoad.call(inst.context, wnd);
+                html.order.append(result);
+            }
+
+        },
+
+        // 
+        templateButton: "<div class='${class}' data-btn='${id}' title='${title}'><span class='sr-only'>${title}</span><span class='${icon}' aria-hidden='true'></span></div>",
+        templateDropdownButton: "<div class='${class} dropdown' data-btn='${id}' title='${title}'><span class='sr-only'>${title}</span><span class='${icon} dropdown-toggle' data-toggle='dropdown' aria-hidden='true'></span><ul class='dropdown-menu dropdown-menu-right'>${options}</ul></div>",
+        //
+        createButtons: function (inst) {
+            var container = inst.html.buttons;
+            var nButtons = inst.buttons.length;
+            // se não houverem botões, esconde a barra de botões
+            if (!nButtons)
+                return container.hide();
+
+            // se houverem botões, cria seus elementos html
+            for (var i = 0; i < nButtons; i++) {
+                var button = inst.buttons[i];
+                var html;
+
+                if (!button.dropdown)
+                    html = this.createSimpleButton(i, button);
+                else
+                    html = this.createDropdownButton(i, button);
+
+                button.html = html;
+                container.append(html);
+            }
+
+            // define o evento de cliques
+            //container.on("click", "." + classes.btn, inst, this.eventoBotao);
+        },
+
+        createSimpleButton: function (index, button) {
+            return $(tmpl(this.templateButton, {
+                "class": classes.btn + (button.push ? " push" : "") + (button.pushed ? " active" : ""),
+                "id": index,
+                "title": button.label,
+                "icon": button.icon
+            }));
+        },
+
+        createDropdownButton: function (index, button) {
+            var options = button.options.slice();
+
+            for (var i = options.length; i--;) {
+                var option = options[i];
+                options[i] = "<li class='" + classes.dropdownItem + "' data-item='" + i + "'><a href='#' title='" + (option.label || "") + "'>" + option.text + "</a></li>";
+            }
+
+            return $(tmpl(this.templateDropdownButton, {
+                "class": classes.btn,
+                "id": index,
+                "title": button.label,
+                "icon": button.icon,
+                "options": options.join("")
+            }));
+        },
+
+        _toggleButton: function (inst, name, state) {
+            // pega o botão no mapeamento através do nome
+            var button = inst.buttonMap[name];
+            (button && button.html.toggle(state))
+            return inst.element;
+        },
+
+        _title: function (inst, arg) {
+            if (arg !== $undefined) {
+                inst.options.title = arg;
+                // se o título for uma string, encapsula ela em um header html
+                if (typeof arg === "string")
+                    arg = wrapTextTitle(arg);
+            }
+            return this.getOrSetHtml("title", inst, arg);
+        },
+
+        _header: function (inst, arg) {
+            return this.getOrSetHtml("header", inst, arg);
+        },
+        _order: function (inst, arg) {
+            return this.getOrSetHtml("order", inst, arg);
+        },
+
+        _footer: function (inst, arg) {
+            return this.getOrSetHtml("footer", inst, arg);
+        },
+
+        _contents: function (inst, arg) {
+            return this.getOrSetHtml("contents", inst, arg);
+        },
+
+        getOrSetHtml: function (field, inst, contents) {
+            var target = inst.html[field];
+            // se o parâmetro for indefinido, retorna o elemento 
+            if (contents === $undefined)
+                return target;
+            // senão, substitui todo o conteudo antigo pelo parâmetro enviado
+            target.empty().append(contents);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        _param: function (inst, key) {
+            var options = inst.options;
+            return options[key];
+        },
+
+        isVisible: function (inst) {
+            return inst.element.is(":visible");
+        },
+
+        _toggleShow: function (inst, smooth) {
+            if (inst.element.is(":visible"))
+                return this._hide(inst, smooth);
+            else
+                return this._show(inst, smooth);
+        },
+
+        _show: function (inst, smooth) {
+            inst.element.slideDown(smooth ? 400 : 0);
+            //inst.element.show(smooth ? 400 : 0);
+            if ($.isFunction(inst.options.onShow))
+                inst.options.onShow(inst.element);
+            return inst.element;
+        },
+
+        _hide: function (inst, smooth) {
+            //debugger;
+            // chama o callback do usuário, se existir, para decidir se devemos fechar a janela
+            //inst.element.hide(smooth ? 400 : 0);
+            if ($.isFunction(inst.options.onHide))
+                if (inst.options.onHide.call(inst.context, inst.element) === false)
+                    return inst.element;
+            // se estiver em tela cheia, minimiza antes
+            if (this._isMaximized(inst))
+                this._minimize(inst);
+            //
+            return inst.element.slideUp(smooth ? 400 : 0);
+        },
+
+        _toggleHeader: function (inst) {
+            if (!inst.html.order.hasClass("hidden")) {
+                inst.html.order.toggleClass('hidden');
+                //return;
+            }
+                
+            // chaveia a classe de visibilidade
+            inst.html.header.toggleClass('hidden');
+            // se estiver em tela cheia, chama a função de redimensionar o wrapper de dados
+            if (inst.resize !== "none" && this._isMaximized(inst))
+                resizePanelBody.call(inst);
+            // encadeamento de objeto
+            return inst.element;
+        },
+        _toggleOrder: function (inst) {
+            if (!inst.html.header.hasClass('hidden')) {
+                inst.html.header.toggleClass('hidden');
+                //return;
+            }
+                
+            // chaveia a classe de visibilidade
+            inst.html.order.toggleClass('hidden');
+            // se estiver em tela cheia, chama a função de redimensionar o wrapper de dados
+            if (inst.resize !== "none" && this._isMaximized(inst))
+                resizePanelBody.call(inst);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        _print: function (inst) {
+            print("#" + inst.id + " ." + classes.contents);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        abortCollapseTransition: function (inst) {
+            var body = inst.html.body;
+            //
+            var data = body.data("bs.collapse");
+            body.unbind("bsTransitionEnd");
+            body.removeClass('collapsing');
+            data.transitioning = 0;
+        },
+
+        _collapse: function (inst, transition) {
+            // se a instância não for colapsável, sair sem fazer nada
+            if (!inst.options.collapsible)
+                return inst.element;
+            // se estiver em tela cheia, simplesmente sair dela
+            if (this._isMaximized(inst))
+                return this._minimize(inst);
+            // se houver um método de resize habilitado, pará-lo
+            if (inst.resize === "always")
+                inst.resizeListener.stop();
+            // processar a colapsagem
+            var $body = inst.html.body;
+            // se não for definida uma transição, usa a transição padrão do collapse.js
+            if (!transition || transition !== "none") {
+                // se estiver no meio de uma transição, não faz nada
+                if ($body.hasClass("collapsing"))
+                    return inst.element;
+                else
+                    $body.collapse('hide');
+            }
+            else {
+                // senão, realiza transição instantanea (único outro modo disponível, por enquanto)
+                // se estiver no meio de uma colapsagem, força o fim dela
+                if ($body.hasClass("collapsing"))
+                    this.abortCollapseTransition(inst);
+                // volta ao tamanho normal, atualiza as classes e chama o callback do "collapse.js"
+                $body.removeClass("in").addClass('collapse')
+                    .css("height", "0")
+                    .trigger('hidden.bs.collapse');
+            }
+            // insere a classe collapsed no toggle, porque o collapse.js não faz automaticamente no "hide"
+            inst.html.titleBar.addClass("collapsed");
+            // se houver o callback de onCollapse, chamá-lo
+            if ($.isFunction(inst.options.onCollapse))
+                inst.options.onCollapse.call(inst.context, inst.element, true);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        _expand: function (inst, transition) {
+            // se a instância não for colapsável, sair sem fazer nada
+            if (!inst.options.collapsible)
+                return inst.element;
+            // se estiver em tela cheia, simplesmente sair dela
+            if (this._isMaximized(inst))
+                return this._minimize(inst);
+            // verifica se a transição deve ser padrão ou imediata
+            var $body = inst.html.body;
+            // se não for definida uma transição, usa a transição padrão do collapse.js
+            if (!transition || transition !== "none") {
+                // se estiver no meio de uma transição, não faz nada
+                if ($body.hasClass("collapsing"))
+                    return inst.element;
+                else
+                    $body.collapse("show");
+            }
+            else {
+                // senão, realiza transição instantanea (único outro modo disponível, por enquanto)
+                // se estiver no meio de uma colapsagem, força o fim dela
+                if ($body.hasClass("collapsing"))
+                    this.abortCollapseTransition(inst);
+                // volta ao tamanho normal, atualiza as classes e chama o callback do "collapse.js"
+                $body.attr("style", "")
+                    .addClass('collapse in')
+                    .trigger('shown.bs.collapse');
+            }
+            // insere a classe collapsed no toggle, porque o collapse.js não faz automaticamente no "hide"
+            inst.html.titleBar.removeClass("collapsed");
+            // se houver um método de resize, continuá-lo
+            if (inst.resize === "always")
+                inst.resizeListener.resume(true);
+            // se houver o callback de onCollapse, chamá-lo
+            if ($.isFunction(inst.options.onCollapse))
+                inst.options.onCollapse.call(inst.context, inst.element, false);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        _toggleCollapse: function (inst, transition) {
+            // se a janela não for colapsável, sair sem fazer nada
+            if (!inst.options.collapsible)
+                return inst.element;
+            // se estiver em tela cheia, apenas sair da tela cheia
+            if (this._isMaximized(inst))
+                return this._minimize(inst);
+            // se estiver colapsado, expande
+            if (this._isCollapsed(inst))
+                return this._expand(inst, transition);
+            // senão, colapsar  
+            return this._collapse(inst, transition);
+        },
+
+        setFullScreen: function (inst) {
+            var state = this.maximizeData;
+            if (!state.count) {
+                // se for a primeira janela em tela cheia, salvar e anular o scroll top, e setar as classes
+                var $window = $(window);
+                state.offset = $window.scrollTop();
+                $window.scrollTop(0);
+                $("html").addClass("full");
+            }
+            state.insts[inst.id] = inst;
+            return ++state.count;
+        },
+
+        removeFullScreen: function (inst) {
+            var state = this.maximizeData;
+            if (!(delete state.insts[inst.id]) || --state.count > 0)
+                return;
+            // remove a classes de tela cheia do html e faz o scroll
+            $("html").removeClass("full");
+            $(window).scrollTop(state.offset);
+            // dá um intervalo antes de repetir o scrollTop, pra permitir que o DOM seja  
+            // atualizado antes (alguns browsers lentos não dão scroll se fizer imediatamente)
+            setTimeout(function () {
+                $(window).scrollTop(state.offset);
+            }, 100);
+        },
+
+        // verifica se o corpo colapsável está no meio de uma transição
+        inTransition: function (inst) {
+            var $collapse = inst.html.body;
+            return ($collapse.length > 0 && (!$collapse.hasClass("in") || $collapse.hasClass("collapsing")));
+        },
+
+        _maximize: function (inst) {
+            // se a janela já está maximizada, sair sem fazer nada
+            if (this._isMaximized(inst))
+                return inst.element;
+
+            // se a janela estiver escondida, exibe-a antes
+            inst.wasVisible = this._isVisible(inst);
+            if (!this.wasVisible)
+                this._show(inst);
+
+            // se o corpo estiver colapsado, salva esta informação o expande
+            if (this.inTransition(inst)) {
+                // só salva a informação de colapsado se ele estiver fechado ou fechando
+                if (this._isCollapsed(inst))
+                    inst.collapsed = true;
+                this._expand(inst, "none");
+            }
+
+            // salva o estilo de visualização da janela
+            this.savePanelState(inst);
+
+            // alterna o ícone do botão de maximizar
+            inst.html.buttons.find("." + classes.btnMaximize)
+               .removeClass("glyphicon-resize-full")
+               .addClass("glyphicon-resize-small");
+
+            // inicia a tela cheia e configura a janela
+            var index = this.setFullScreen(inst);
+
+            inst.element
+                .addClass(classes.maximized)
+                .css("z-index", 1000 * (1 + index));
+
+            // chama o callback do usuário
+            var options = inst.options;
+            if (options.onMaximize)
+                options.onMaximize.call(inst.context, inst.element);
+
+            // processa o listener de resize
+            if (options.resize === "always")
+                this.updateResizeListener(inst);
+            else if (options.resize === "maximized")
+                this.createResizeListener(inst);
+
+            // atualiza o hash da página, se requisitado
+            if (options.urlRefresh == true)
+                this.addHash(inst);
+
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        _minimize: function (inst) {
+            // se a janela estiver escondida, exibe-a antes
+            if (!this._isVisible(inst))
+                this._show(inst);
+
+            // retorna o scroll para a posição original, se possível, e remove a janela da tela cheia
+            inst.element
+                .removeClass(classes.maximized)
+                .css("z-index", "");
+            //
+            this.loadPanelState(inst);
+            this.removeFullScreen(inst);
+
+            // alterna o ícone do botão de minimizar
+            var el = inst.html.buttons.find("." + classes.btnMaximize)
+                .addClass("glyphicon-resize-full")
+                .removeClass("glyphicon-resize-small");
+
+            // chama o callback do usuário
+            var options = inst.options;
+            if (options.onMinimize)
+                options.onMinimize.call(inst.context, inst.element);
+
+            // se o elemento estava minimizado antes da tela cheia, o minimiza novamente
+            if (inst.collapsed) {
+                this._collapse(inst, "none");
+                inst.collapsed = false;
+            }
+
+            // processa o listener de resize
+            if (options.resize === "always")
+                this.updateResizeListener(inst);
+            else if (options.resize === "maximized")
+                this.removeResizeListener(inst);
+
+            // atualiza o hash da página, se necessário
+            if (options.urlRefresh == true)
+                this.removeHash(inst);
+
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        // maximiza a janela caso o hash da url coincida com o id da instância
+        checkStartupMaximize: function (inst) {
+            var id = "#" + inst.id;
+            if (location.hash === id) {
+                // realiza a atualização em 2 passos, apagando o hash e então maximizando a janela
+                // (reempilhando o hash da janela), para permitir que o "voltar" feche a janela
+                this.clearHash();
+                this._maximize(inst);
+            }
+        },
+
+        clearHash: function () {
+            // substitui a url por uma versão sem o hash
+            if (!$.isFunction(history.replaceState))
+                location.hash = "";
+            else {
+                var url = regexp_removeHash.exec(location.href)[0];
+                history.replaceState({}, null, url);
+            }
+        },
+
+        // insere o hash de maximização de janela
+        addHash: function (inst) {
+            var id = '#' + inst.id;
+            if (location.hash !== id) {
+                if (!$.isFunction(history.pushState))
+                    location.hash = id;
+                else {
+                    var url = regexp_removeHash.exec(location.href)[0];
+                    history.pushState({}, null, url + id);
+                }
+            }
+        },
+
+        removeHash: function (inst) {
+            var id = '#' + inst.id;
+            // se o hash atual for o hash da janela, chamar o evento de voltar
+            if (location.hash === id) {
+                if (!$.isFunction(history.pushState))
+                    location.hash = "";
+                else
+                    history.back();
+            }
+        },
+
+        evtHashChange: function (e) {
+            var maximizeData = plugin.maximizeData;
+            var orig = e.originalEvent;
+            //
+            var oldHash = ("" + orig.oldURL).match(regexp_hash);
+            var newHash = ("" + orig.newURL).match(regexp_hash);
+            //
+            var id, maximized;
+            if (oldHash) {
+                // se havia um hash antigo, verificamos se corresponde a alguma janela atualmente maximizada
+                id = oldHash[1];
+                maximized = maximizeData.insts[id];
+                // se esta janela estava maximizada, a minimiza ou fecha de acordo com o estado anterior à maximização
+                if (maximized) {
+                    if (maximized.wasVisible)
+                        plugin._minimize(maximized);
+                    else
+                        plugin._hide(maximized);
+                }
+            }
+            if (newHash) {
+                // se existe um hash novo, verificamos se corresponde a alguma janela atualmente minimizada
+                id = newHash[1];
+                maximized = maximizeData.insts[id];
+                // se não existe uma janela maximizada com este id, verificamos se ele corresponde a alguma janela e, então, a maximizamos
+                if (!maximized) {
+                    var inst = $("#" + id).data(propertyName);
+                    if (inst)
+                        plugin._maximize(inst);
+                }
+            }
+        },
+
+        _toggleMaximize: function (inst) {
+            var options = inst.options;
+            if (inst.element.hasClass("janela-maximize"))
+                return this._minimize(inst);
+            else
+                return this._maximize(inst);
+        },
+
+        _refresh: function (inst) {
+            if (inst.resize)
+                resizePanelBody.call(inst);
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        savePanelState: function (inst) {
+            if (inst.resize)
+                inst.oldStyle = (inst.html.contents.attr("style") || "");
+        },
+
+        loadPanelState: function (inst) {
+            if (inst.resize) {
+                inst.html.contents.attr("style", inst.oldStyle);
+                inst.oldStyle = null;
+            }
+        },
+
+        _isMaximized: function (inst) {
+            return inst.element.hasClass("janela-maximize");
+        },
+
+        _isCollapsed: function (inst) {
+            return inst.html.titleBar.hasClass("collapsed");
+        },
+
+        _isVisible: function (inst) {
+            return inst.element.is(":visible")
+        },
+
+        getButton: function (inst, id) {
+            // se o id for numérico, pega pelo índice, senão, pelo mapeamento
+            var button = (inst.buttons[id] || inst.buttonMap[id]);
+
+            if (!button)
+                console.log('There is no button with id "' + id + '"');
+
+            return button;
+        },
+
+        // efetua um click em algum botão da barra de título
+        _click: function (inst, id) {
+            var button = this.getButton(inst, id);
+
+            // se o botão informado existir, disparar seu método
+            if (button)
+                this.clickButton(inst, button);
+
+            // encadeamento de objeto
+            return inst.element;
+        },
+
+        clickDropdownButton: function (inst, button, itemIndex) {
+            var item = button.options[itemIndex];
+
+            if (item && item.event)
+                item.event.call(inst.context, itemIndex, item);
+        },
+
+        clickButton: function (inst, button) {
+            if (!button)
+                return;
+
+            if (!button.user) {
+                // se o botão não for de usuário, chamar o evento padrão associado
+                inst.element.janela(button.event);
+            }
+            else if (!button.event) {
+                // se for um botão de usuário e não houver um evento associado, informar este erro
+                console.log('The button does not have an event.');
+            }
+            else if (!button.push) {
+                // se não for botão tipo "push", chamar imediatamente
+                button.event.call(inst.context, button.name);
+            }
+            else {
+                // é um botão do tipo 'push'. devemos o callback para decidir se o botão deve alterar seu estado
+                if (button.event.call(inst.context, button.name, !button.pushed)) {
+                    // se passou no callback, alterna o estado do botão
+                    button.pushed = !button.pushed;
+                    button.html.toggleClass("active", button.pushed);
+                }
+            }
+        },
+
+        pegarHtmlBotao: function (inst, botao) {
+            return $(inst.html.botoes.children()[botao.index]);    // MEIO MERDA. DEPOIS AJEITAR ********
+        },
+
+        _triggerResize: function (inst, height) {
+            var options = inst.options;
+            var $window = inst.element;
+            var $wrapper = inst.html.contents;
+            var width;
+            // verifica se está em tela cheia
+            if (!this._isMaximized(inst)) {
+                // se não estiver, simplesmente lê as dimensões do wrapper
+                width = $wrapper.width();
+                height = $wrapper.height();
+            }
+            else {
+                // se estiver em tela cheia, expande o wrapper de dados até ocupar toda a janela
+                var $footer = inst.html.footer;
+                var wrapperTop = $wrapper.offset().top;
+                var windowTop = $window.offset().top;
+                var marginTop = wrapperTop - windowTop;
+                // pega o padding inferior, e define a margem inferior
+                var padding = parseInt(inst.html.border.css("padding-bottom"));
+                var marginBottom = $footer.height() + padding;
+                // calcula o tamanho final e o fixa no wrapper
+                width = $wrapper.width();
+                height = (height || $window.height()) - marginTop - marginBottom;
+                $wrapper.css("height", height);
+            }
+            // chama o callback do resize
+            if (options.onResize)
+                options.onResize.call(inst.context, inst.element, width, height);
+        }
+
+    });
+
+    // função para processar o clique na barra de título, que pode ser um botão da barra ou colapsagem
+    function evtTitleBar(e) {
+        var inst = e.data;
+        var target = $(e.target);
+
+        if (target.closest("." + classes.buttons).length) {
+            // se o evento ocorreu na área de botões, executa o evento associado ao botão
+            if (!executeTitleButton(inst, target)) {
+                // se o evento não foi tratado, deixar propagar
+                return true;
+            }
+        }
+        else {
+            // senão, chama a função de collapsagem do plugin
+            if (!inst.options.collapsible) {
+                // se o elemento não for colapsável, deixa o evento propagar
+                return true;
+            }
+            plugin._toggleCollapse(inst);
+        }
+
+        // se processou, previne o tratamento padrão do bootstrap 
+        e.stopPropagation();
+        return false;
+    }
+
+    function executeTitleButton(inst, target) {
+        var element = target.closest("." + classes.btn);
+
+        if (!element.length)
+            return true;
+
+        var index = Number(element.attr("data-btn"));
+        var isDropdown = element.hasClass("dropdown");
+
+        var button = plugin.getButton(inst, index);
+
+        // se o botão não existir, retornar sem fazer nada
+        if (!button)
+            return true;
+
+        // remove qualquer seleção de texto que exista
+        $.ui.emptySelection();
+
+        if (!isDropdown) {
+            // se não for um dropdown, executar o clique imediatamente
+            plugin.clickButton(inst, button);
+        }
+        else {
+            // senão, devemos verificar se o clique ocorreu no toggle ou em um item
+            var item = target.closest("." + classes.dropdownItem);
+
+            // se o clique não ocorreu em um item, retornar false para o 'evtTitleBar' deixar o evento propagar
+            if (!item.length)
+                return false;
+
+            // o clique ocorreu em um item. fechar o dropdown e executar seu evento associado
+            element.removeClass("open");
+
+            var itemIndex = Number(item.attr("data-item"));
+            plugin.clickDropdownButton(inst, button, itemIndex);
+        }
+
+        return true;
+    }
+
+    function resizePanelBody(width, height) {
+        // se houver uma janela em tela cheia e não for o caso desta, sair sem fazer nada (pois não estará visivel)
+        var inst = this;
+        if (!plugin.maximizeData.count || plugin._isMaximized(inst))
+            plugin._triggerResize(inst, height);
+    }
+
+    // $.fn.janela(options): criação de janela com as opções informadas
+    // $.fn.janela(method, arguments): executa o método especificado
+    $.fn.janela = function (options, _) {
+        var element = $(this);
+        var inst = element.data(propertyName);
+        // se options for "initialized", retorna se o objeto é uma janela
+        if (options === "initialized")
+            return !!inst;
+        // se não for uma instância de janela, é um construtor de janela
+        if (!inst)
+            return plugin.attachPlugin(element, options || {});
+        // senão, tratamos como chamada de método. se options não for string, é um erro
+        if (typeof options !== 'string')
+            throw 'Método não especificado.';
+        else {
+            // senão, verificamos a exitência do método
+            var metodo = plugin['_' + options];
+            if (!metodo)
+                throw 'Método não encontrado: ' + options;
+            // senão, finalmente executa o método requisitado
+            // copia os parâmetros e substitui o nome do método pela instancia
+            var params = [].slice.call(arguments, 0);
+            params[0] = inst;
+            // chama o método
+            return metodo.apply(plugin, params);
+        }
+    };
+
+    // define uma chamada sem objeto base, que cria uma janela vazia e a retorna
+    $.janela = function (options) {
+        return $("<div/>").janela(options);
+    }
+
+    // o uso como objeto global deve equivaler a alterar o protype de Janela
+    $.janela.prototype = Janela.prototype;
+
+    // cria o plugin singleton
+    plugin = new Janela();
+
+})(jQuery);

@@ -1,0 +1,577 @@
+﻿
+// Variável destinada a passagem de parametros na função _verificarLoginExterno
+// necessário para compatibilidade com IE8 e IE9, onde não é possível passar parametros
+// a função setTimeout
+var parametrosSetTimeout = null;
+
+function PerfilLogin() {
+
+}
+
+$.extend(PerfilLogin.prototype, {
+    _defaults: {
+        'default-class': 'perfil-login',
+
+        'areausuario-login-class': 'areausuario-login',
+        'areausuario-login-arrow-class': 'areausuario-login-arrow',
+        'areausuario-login-container-class': 'areausuario-login-container',
+        'areausuario-overlay-class': 'areausuario-overlay',
+        'areausuario-overlay-center-class': 'areausuario-overlay-center',
+        'areausuario-login-target-class': 'areausuario-login-target',
+        'login-ajax-form-class': 'login-ajax-form',
+        'formulario-class': 'formulario',
+        'formulario-sidra-class': 'formulario-sidra',
+        'formulario-ibge-mfa-class': 'formulario-ibge-mfa',
+        'formulario-primeiro-class': 'primeiro',
+        'opcao-login-class': 'opcao-login',
+        'primeiro-class': 'primeiro',
+        'areausuario-hide-scroll-class': 'areausuario-hide-scroll',
+        'close-class': 'close',
+        'login-externo-class': 'login-externo'
+    },
+
+    open: false,
+    options: {},
+    modo: '',
+    disableClose: false,
+    propertyName: 'optionsPerfilLogin',
+    markerClassName: 'perfil-login-start',
+
+    callback: null,
+    parametros: null,
+
+    _attachPlugin: function (target, options) {
+        // Verifica se o monitor já foi inicializada
+        if (target.hasClass(this.markerClassName)) {
+            return;
+        }
+
+        // Modo
+        target.modo = target.data('modo');
+
+        // Estende as opcoes padrão 
+        options = $.extend({}, this._defaults, options);
+        target.data('options', options);
+
+        var dataTarget = target.data('target');
+        var dataLink = target.data('link');
+
+        // Click no link Área do Usuário do menu
+        $("body").on("click", dataTarget, {
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            evt.preventDefault();
+
+            var href = $(this).attr('href');
+
+            if (!href) {
+                href = $(this).data('href');
+            }
+
+            // Pega callback e parâmtros
+            var callback = $(this).data('callback');
+            var parametros = $(this).data('parametros');
+
+            evt.data.objThis._targetClick(
+                evt.data.objTarget, evt, href, callback, parametros
+            );
+        });
+
+        // Click em um link que necessita login
+        $("body").on("click", dataLink, {
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            evt.preventDefault();
+
+            var href = $(this).attr('href');
+
+            if (!href) {
+                href = $(this).data('href');
+            }
+
+            var disableClose = false;
+            var close = $(this).data('close');
+
+            if (close === 'disable') {
+                disableClose = true;
+            }
+
+            // Pega callback e parâmtros
+            var callback = $(this).data('callback');
+            var parametros = $(this).data('parametros');
+
+            evt.data.objThis._linkClick(
+                evt.data.objTarget, evt, href, callback, parametros, disableClose
+            );
+        });
+
+        // Click fora da janela de login
+        $("body").on("click", "", {
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            evt.data.objThis._cliqueForaJanela(
+                evt.data.objTarget, evt.target
+            );
+        });
+
+        target.find("." + options['opcao-login-class'] + " li").click({
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            evt.data.objThis._alterarFormularioLogin(evt.data.objTarget, this);
+        });
+
+        // Botão fechar
+        target.find("." + options['close-class']).click({
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            evt.data.objThis._close(evt.data.objTarget);
+        });
+
+
+        // Inicializa validators
+        this._startFormValidators(target);
+
+        // Inicializa login externo
+        target.find("." + options['login-externo-class']).click({
+            objThis: this,
+            objTarget: target
+        }, function (evt) {
+            var objThis = evt.data.objThis;
+            var objTarget = evt.data.objTarget;
+            var action = $(this).data('action');
+
+            objThis._loginExterno(objTarget, action);
+        });
+
+        return target;
+    },
+
+    _startFormValidators: function (target) {
+        var options = target.data('options');
+
+        var $formSidra = target.find("." + options['formulario-sidra-class'] + " form");
+        var $formIBGEMFA = target.find("." + options['formulario-ibge-mfa-class'] + " form");
+
+        $formSidra.sidraValidator({
+            validations: {
+                Email: {
+                    'Required': true
+                },
+                Senha: {
+                    'Required': true
+                }
+            },
+            filters: {
+                Email: {
+                    'Trim': true,
+                    'Lowercase': true
+                }
+            },
+            submitListener: this._salvar,
+            submitListenerParameters: {
+                objThis: this,
+                target: target,
+                form: $formSidra
+            }
+        });
+
+        $formIBGEMFA.sidraValidator({
+            validations: {
+                Usuario: {
+                    'Required': true
+                },
+                Senha: {
+                    'Required': true
+                }
+            },
+            filters: {
+                Usuario: {
+                    'Trim': true,
+                    'Lowercase': true
+                }
+            },
+            submitListener: this._salvar,
+            submitListenerParameters: {
+                objThis: this,
+                target: null,
+                form: $formIBGEMFA
+            }
+        });
+    },
+
+    _salvar: function (evt, params) {
+        var form = params.form;
+
+        var urlAjax = $(form).attr('action');
+        var values = $(form).serialize();
+
+        form.loading('Acessando sua Conta');
+
+        $.ajax({
+            type: "POST",
+            url: urlAjax,
+            cache: false,
+            data: values,
+            objThis: params.objThis,
+            target: params.target
+        }).fail(function () {
+            form.sidraValidator('applyError', {
+                field: 'Email',
+                message: 'Falha ao realizar login'
+            });
+
+            form.sidraValidator('applyError', {
+                field: 'Usuario',
+                message: 'Falha ao realizar login'
+            });
+        }).done(function (dados) {
+
+            var loginIBGEMFA = false;
+
+            if (dados.response == 1) {
+                if (dados.error) {
+                    form.sidraValidator('applyError', {
+                        field: 'Email',
+                        message: dados.error
+                    });
+
+                    form.sidraValidator('applyError', {
+                        field: 'Usuario',
+                        message: dados.error
+                    });
+                }
+
+                if (dados.errors) {
+                    for (var i = 0; i < dados.errors.length; i++) {
+                        var error = dados.errors[i];
+                        form.sidraValidator('applyError', error);
+                    }
+                }
+            } else if (this.target != null && this.target.callback) {
+                // Fecha modal
+                this.objThis._close(this.target);
+
+                var body = $("body");
+                
+                // Define nome e e-mail na própria página
+                body.data('nome', dados.data.Nome);
+                body.data('email', dados.data.Email);
+
+                // Chama função para informar que o usuário realizou login
+                this.target.callback(this.target.parametros);
+
+                // Altera variavel temporaria de login
+                body.data("autenticado", "1");
+            } else if (dados.data) {
+                location.href = dados.data.ReturnUrl;
+
+                if (form.selector.includes("ibge-mfa")) loginIBGEMFA = true;
+
+            } else {
+                var msg = 'Link de retorno inválido';
+
+                alert(msg);
+                throw msg;
+            }
+
+            if (!loginIBGEMFA) form.loading('close');
+        });
+    },
+
+    _alterarFormularioLogin: function (target, evtThis) {
+        var options = target.data('options');
+        var tipo = $(evtThis).data('target')
+
+        // Altera aba selecionada
+        target.find("." + options['opcao-login-class'] + " li").removeClass("active");
+        $(evtThis).addClass('active');
+
+        // Altera formulário
+        target.find("." + options['formulario-class']).css('display', 'none');
+
+        target.find(tipo)
+            .css('display', 'block');
+
+        // Apaga todos os campos preenchidos
+        target.find("input[type='text']").val('');
+        target.find("input[type='password']").val('');
+        target.find("input[type='checkbox']").prop('checked', false);
+    },
+
+    _targetClick: function (target, evt, href, callback, parametros) {
+        var options = target.data('options');
+
+        if (target['modo'] == 'modal') {
+            return;
+        }
+
+        // No modo target sempre será possível fechar a janela
+        target.disableClose = false;
+
+        var autenticado = $("body").data("autenticado");
+        if (autenticado) {
+            if (callback) {
+                callback(parametros);
+            } else {
+                location.href = href;
+            }
+
+            target.callback = null;
+            target.parametros = null;
+
+            return;
+        } else {
+            target.callback = callback;
+            target.parametros = parametros;
+        }
+
+        // Fecha todas as janelas de login
+        this._close(target);
+
+        target.removeClass(options['areausuario-overlay-class']);
+
+        // Habilita arrow
+        var arrow = target.find("." + options['areausuario-login-arrow-class']);
+        arrow.css("display", "block");
+
+        // Operações na modal
+        var modal = target.find("." + options['areausuario-login-class']);
+
+        modal.removeClass(options["areausuario-overlay-center-class"])
+            .addClass(options['areausuario-login-target-class'])
+            .css("display", "block");
+
+        modal.find(".close")
+            .css("display", "none");
+        //**//
+
+        this._resetTela(target, href);
+    },
+
+    _resetTela: function (target, href) {
+        var options = target.data('options');
+
+        // Altera aba selecionada
+        target.find("." + options['opcao-login-class'] + " li").removeClass("active");
+        target.find("." + options['opcao-login-class'] + " li:first").addClass("active");
+
+        target.find("." + options['formulario-class']).css('display', 'none');
+        target.find("." + options['formulario-class'] + ":first").css('display', '');
+        
+        // Apaga todos os campos preenchidos
+        target.find("input[type='text']").val('');
+        target.find("input[type='password']").val('');
+        target.find("input[type='checkbox']").prop('checked', false);
+
+        // Inicializa url de retorno
+        target.find("input[name='ReturnUrl']").val(href);
+    },
+
+    _linkClick: function (target, evt, href, callback, parametros, disableClose) {
+        var options = target.data('options');
+
+        if (target['modo'] == 'janela') {
+            return;
+        }
+
+        var autenticado = $("body").data("autenticado");
+        if (autenticado) {
+            if (callback) {
+                callback(parametros);
+            } else {
+                location.href = href;
+            }
+
+            target.callback = null;
+            target.parametros = null;
+
+            return;
+        } else {
+            target.callback = callback;
+            target.parametros = parametros;
+        }
+
+        // Define se a janela deve ser fechada ou não
+        target.disableClose = disableClose;
+
+        // Fecha todas as janelas de login
+        this._close(target);
+
+        target.addClass(options['areausuario-overlay-class']);
+
+        // Desabilita arrow
+        target.find("." + options['areausuario-login-arrow-class']).css("display", "none");
+
+        // Operações Modal
+        var modal = target.find("." + options['areausuario-login-class'])
+        modal.addClass(options["areausuario-overlay-center-class"])
+            .removeClass(options['areausuario-login-target-class'])
+            .css("display", "");
+
+        modal.find(".close")
+            .css("display", "block");
+        //**//
+
+        // Desabilita scroll da página
+        $("body").addClass(options['areausuario-hide-scroll-class']);
+
+        this._resetTela(target, href);
+    },
+
+    _cliqueForaJanela: function (target, clickTarget) {
+        var options = target.data('options');
+
+        var targets = target.data('target');
+        var dataLink = target.data('link');
+        var windowSel = options['areausuario-login-class'];
+
+        var l1 = $(clickTarget).closest(targets);
+        var l2 = $(clickTarget).closest(dataLink);
+        var l3 = $(clickTarget).closest("." + windowSel);
+
+        if (
+            (!l1 || l1.length == 0) &&
+            (!l2 || l2.length == 0) &&
+            (!l3 || l3.length == 0)
+        ) {
+            this._close(target);
+        }
+
+    },
+
+    _close: function (target) {
+        // Verifica se o fechamento da janela está habilitado
+
+        if (target.disableClose === false) {
+            var options = target.data('options');
+            var body = $("body");
+
+            body.find("." + options['areausuario-login-arrow-class']).css("display", "none");
+            body.find("." + options['areausuario-login-class']).css("display", "none");
+
+            body.find("." + options['areausuario-login-container-class'])
+                .removeClass(options['areausuario-overlay-class']);
+
+            $("body").removeClass(options['areausuario-hide-scroll-class']);
+        }
+    },
+
+    _loginExterno: function (target, action) {
+        var urlLoginExternoRequisicao = "/perfil/login/loginexternorequisicao";
+
+        var w = 600;
+        var h = 700;
+
+        var left = (screen.width / 2) - (w / 2);
+        var top = (screen.height / 2) - (h / 2);
+        var authWindow = window.open("",
+            "Loginindow",
+            "directories=0,titlebar=0,toolbar=0,location=0,status=0,menubar=0,scrollbars=no,resizable=no, width=" +
+            w + ",height=" + h + ",top=" + top + ",left=" + left);
+
+        $.ajax({
+            type: "GET",
+            url: urlLoginExternoRequisicao,
+            cache: false,
+            data: {
+                'provider': action
+            }
+        }).fail(function () {
+            alert('Erro ao realizar login');
+        }).done(function (data) {
+            if (!data.Autenticado) {
+                authWindow.document.write('Verificando autenticidade do usuário');
+                authWindow.location = data.ReturnUrl;
+            }
+        });
+
+        parametrosSetTimeout = {
+            'objThis': this,
+            'objTarget': target,
+            'action': action
+        };
+
+        this._verificarLoginExterno();
+    },
+
+    _verificarLoginExterno: function () {
+        var objThis = parametrosSetTimeout['objThis'];
+        var objTarget = parametrosSetTimeout['objTarget'];
+        var action = parametrosSetTimeout['action'];
+        var urlLoginExternoRequisicao = "/perfil/login/loginexternorequisicao";
+
+        $.ajax({
+            type: "GET",
+            url: urlLoginExternoRequisicao,
+            cache: false,
+            data: {
+                'provider': action
+            },
+            'objThis': objThis,
+            'objTarget': objTarget,
+            'action': action
+        }).fail(function () {
+            alert('Erro ao realizar login');
+        }).done(function (data) {
+            var autenticado = $("body").data("autenticado");
+
+            if (!data.Autenticado && autenticado == 0) {
+                parametrosSetTimeout = {
+                    'objThis': this.objThis,
+                    'objTarget': this.objTarget,
+                    'action': this.action
+                };
+
+                setTimeout(this.objThis._verificarLoginExterno, 2000);
+            } else {
+                var returnUrl = this.objTarget.find("input[name='ReturnUrl']").val();
+
+                if (this.objTarget.callback) {
+                    // Fecha modal
+                    this.objThis._close(this.objTarget);
+
+                    // Define nome e e-mail na própria página
+                    var body = $("body");
+
+                    body.data('nome', data.Nome);
+                    body.data('email', data.Email);
+                    body.data('foto', data.Foto);
+
+                    // Chama função para informar que o usuário realizou login
+                    this.objTarget.callback(this.objTarget.parametros);
+
+                    // Altera variavel temporaria de login
+                    $("body").data("autenticado", "1");
+                } else if (returnUrl) {
+                    location.href = returnUrl;
+                } else {
+                    var msg = 'Link de retorno inválido';
+
+                    alert(msg);
+                    throw msg;
+                }
+            }
+        });
+    }
+});
+
+$.fn.PerfilLogin = function (options, arg1) {
+    if (typeof options == 'string') {
+        if (!pluginPerfilLogin['_' + options + 'PerfilLoginPlugin']) {
+            throw 'Método não encontrado: ' + options;
+        }
+
+        return pluginPerfilLogin['_' + options + 'PerfilLoginPlugin'].call(pluginPerfilLogin, this, arg1);
+    } else {
+        pluginPerfilLogin._attachPlugin(this, options || {});
+    }
+
+    return this;
+};
+
+var pluginPerfilLogin = $.PerfilLogin = new PerfilLogin();

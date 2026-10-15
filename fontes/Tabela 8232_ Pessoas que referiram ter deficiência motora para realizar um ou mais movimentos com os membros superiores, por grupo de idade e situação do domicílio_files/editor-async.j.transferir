@@ -1,0 +1,134 @@
+﻿// -------------------------------------------------------------------------------------------------
+// CÓDIGO PARA TRECHOS ASSÍNCRONOS -----------------------------------------------------------------
+// -------------------------------------------------------------------------------------------------
+
+(function (globals) {
+
+    var isArray = (Array && Array.isArray
+        ? Array.isArray
+        : function (arg) {
+            return ({}).toString.call(arg) === "[object Array]";
+        });
+
+    function functionOrNull(func) {
+        return (typeof func === "function" ? func : null);
+    }
+    
+    // asynchronously execute a function, or a list of functions in sequence.
+    // Async(function) - simple async call
+    // Async(data, functions, fail)
+    //   data: function to be passed as parameter
+    //   functions: a function or array of functions to be called, in order
+    //   fail: procedure to be executed if any of the functions raise an exception
+    globals.Async = function (data, functions, fail) {
+        // if "data" is a function, simply delay it's execution
+        if (typeof data === "function")
+            return setTimeout(data, 0);
+        // else, it's the second type of call. if it's a single function, wrap inside an array
+        if (!isArray(functions))
+            functions = [functions];
+        // start async execution
+        if (functions.length)
+            return new _async(data, functions, fail);
+        else
+            return null;
+    }
+
+    // 
+    function _async(data, functions, fail) {
+        this._data = data;
+        this.index = 0;
+        this.functions = functions;
+        this._fail = functionOrNull(fail);
+        this._step();
+    }
+
+    _async.prototype.resume = function () {
+        this._step();
+    };
+
+    _async.prototype._step = function () {
+        if (!this.functions.length)
+            return;
+        //
+        var that = this;
+        setTimeout(function () {
+            var f = that.functions.shift();
+            try {
+                if (f instanceof _async)
+                    f.resume();
+                else if (f.call(that, that._data, that.index++) != false)   // undefined should be true
+                    that._step();
+            }
+            catch (err) {
+                if (that._fail)
+                    that._fail(that._data, err);
+                else
+                    throw err;
+            }
+        }, 0);
+    };
+
+    // -------------------------------------------------------------------------------------------------
+
+    // asynchronously execute list of functions, or one function N times, in parallel (without specified order).
+    // AsyncFork(data, functions, done, fail)
+    // AsyncFork(data, count, function, done, fail)
+    globals.AsyncFork = function (arg1, arg2, arg3, arg4, arg5) {
+        // lazy check for first parameter configuration
+        if (isArray(arg2))
+            return new _fork(arg1, 0, arg2, arg3, arg4);
+        // lazy check for second parameter configuration 
+        if (typeof arg2 === "number" && arg2 > 0)
+            return new _fork(arg1, arg2, arg3, arg4, arg5);
+        // no condition validated. throw exception
+        throw "Invalid parameter configuration.";
+    }
+
+    // when count is zero, treat functions as an array
+    function _fork(data, count, functions, done, fail) {
+        var isRepetition = (count > 0);
+        var length = (count || functions.length);
+
+        if (!length)
+            done(data);
+
+        this.data = data;
+        this._remaining = length;
+        this._done = functionOrNull(done);
+        this._fail = functionOrNull(fail);
+        this._errors = [];
+
+        for (var i = 0; i < length; i++)
+            (isRepetition ? functions : functions[i]).call(this, this.data, i);
+    }
+
+    _fork.prototype.fail = function (e) {
+        var error = new Error(e);
+        this._errors.push(error);
+        this.done();
+    };
+
+    _fork.prototype.done = function () {
+        if (--this._remaining > 0)
+            return;
+        //
+        if (this._errors.length === 0) {
+            if (this._done)
+                this._done(this.data);
+        }
+        else {
+            if (this._fail)
+                this._fail(this.data, this._errors);
+            else {
+                while (this._errors.length)
+                    delayedThrow(this._errors.shift());
+            }
+        }
+    };
+
+    function delayedThrow(e) {
+        setTimeout(function () { throw e; }, 0);
+    };
+
+})(this);

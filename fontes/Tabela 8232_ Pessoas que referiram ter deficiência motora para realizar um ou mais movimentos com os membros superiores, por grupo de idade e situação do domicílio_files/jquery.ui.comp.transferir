@@ -1,0 +1,1288 @@
+﻿// cria o namespace para o construtor de componentes
+
+; (function ($, $undefined) {
+
+    // algumas variáveis para uso interno
+    var self = {};
+    var uiPrefix = "ui";
+    var fieldPrefix = "__ui";
+    var id = 1000;	// id sequencial para usar nos objetos
+    var BTN_WIDTH = 24;
+    var textoCancel = "Cancelar";
+    var textInputAria = "Filtra";
+
+    // define os plugins que seguirão o construtor automático
+    var plugins = ["Modal", "Dropdown", "Menu"];
+    var alertModal = null;
+
+    // cria um novo ID para componente de UI
+    function getId() { return uiPrefix + '_' + (id++) }
+
+    //
+
+    // TODO: ainda não verifiquei se esse "data" pode causar algum erro ou memory leak quando o elemento é excluído
+    $.fn.uiInputChange = function (options) {
+        var element = $(this);
+        if (options === "abort") {
+            var handler = element.data(uiPrefix + "InputChange");
+            if (handler && handler.timeout) {
+                clearTimeout(handler.timeout);
+                handler.timeout = null;
+            }
+            return this;
+        }
+
+        var handler = {
+            element: this,
+            timeout: null,
+            text: element.prop("value"),
+            onChange: (options.onChange || F),
+            context: (options.context || this),
+            delay: (Number(options.delay) || 400)
+        }
+
+        return element
+            .data(uiPrefix + "InputChange", handler)
+            .on("change keyup", handler, evtInputChange);
+    }
+
+    function evtInputChange(e) {
+        var text = $(this).prop("value");
+        var handler = e.data;
+        //
+        if (handler.timeout)
+            clearTimeout(handler.timeout);
+        //
+        handler.timeout = setTimeout(function () {
+            handler.timeout = null;
+            handler.text = text;
+            handler.onChange.call(handler.context, text);
+        }, handler.delay);
+    }
+
+    //
+
+    var defaultAlertBody = '<button type="button" class="btn btn-primary pull-right" data-dismiss="modal">OK</button><div class="clearfix"></div>';
+
+
+    // size: lg, md, sm
+    $.uiAlert = function (title, text, size) {
+        if (!text) {
+            // se nenhum texto for especificado, usa um botão "OK" padrão
+            text = defaultAlertBody;
+        }
+
+        if (!alertModal) {
+            alertModal = $.uiModal({
+                "id": getId(),
+                "visible": false,
+                "afterHide": function () {
+                    $(this).uiModal("body").empty();
+                }
+            }).addClass("sidra-alert");
+        }
+
+        // ajusta o tamanho do modal, se necessário
+        adjustDialogSize(alertModal, size);
+
+        return alertModal
+            .uiModal("title", title)
+            .uiModal("body", text)
+            .uiModal("show");
+    }
+
+    $.fn.uiAlert = function (method) {
+        var dialog = $(this).closest(".sidra-alert");
+
+        switch (method) {
+            case "close": dialog.uiModal("hide"); break;
+        }
+
+        return $(this);
+    };
+
+    //
+
+    function adjustDialogSize(dialog, size) {
+        // ajusta o tamanho do modal, se necessário
+        dialog.find(".modal-dialog")
+            .toggleClass("modal-sm", size == "sm")
+            .toggleClass("modal-lg", size == "lg");
+    }
+
+    function selectFunction(a, b) {
+        return ($.isFunction(a) ? a : b);
+    }
+
+    var dialogField = fieldPrefix + "Dialog";
+
+
+    // { data }
+    // title: string
+    // text: string
+    // onOK: function
+    // onCancel: function
+    // okText: string
+    // cancelText: string
+    $.uiDialog = function (data) {
+        data.onOK = selectFunction(data.onOK, F);
+        data.onCancel = selectFunction(data.onCancel, F);
+
+        var hasClose = (data.hasOwnProperty("hasClose") ? !!data.hasClose : true);
+
+        var dialog = $.uiModal({
+            id: getId(),
+            visible: false,
+            ok: (data.okText || "OK"),
+            cancel: (data.cancelText || textoCancel),
+            hasClose: hasClose,
+            //
+            onOK: dialogOk,
+            onCancel: dialogCancel,
+            afterHide: dialogClose
+        }).addClass("sidra-dialog").data(dialogField, data);
+
+        adjustDialogSize(dialog, data.size);
+
+        // define a visibilidade do corpo do modal em função da presença de texto
+        dialog.uiModal("body").toggle(!!data.text);
+
+        // define o conteúdo e exibe
+        return dialog
+            .uiModal("title", data.title)
+            .uiModal("body", data.text)
+            .uiModal("show");
+    }
+
+    function dialogOk(e) {
+        var data = $(this).data(dialogField);
+        return data.onOK.call(this, e);
+    }
+
+    function dialogCancel(e) {
+        var data = $(this).data(dialogField);
+        data.onCancel.call(this, e);
+    }
+
+    function dialogClose() {
+        $(this).removeData(dialogField).remove();
+    }
+
+    // { data }
+    // text: string
+    // default: string
+    // placeholder: string
+    // onOK: function
+    // onCancel: function
+    // okText: string
+    // cancelText: string
+    $.uiPrompt = function (obj) {
+        if (typeof obj == "string") {
+            // se obj for string, considera a assinatura simples no formato (text, onOK, onCancel)
+            return $.uiPrompt({
+                text: arguments[0],
+                onOK: arguments[1],
+                onCancel: arguments[2]
+            });
+        }
+
+        var contents = "<h5>" + obj.text + "</h5><input class='form-control' placeholder='" + (obj.placeholder || "") + "'/>";
+        var onOK = obj.onOK;
+
+        // intermedia o handler de onOK e envia o texto digitado ao usuário
+        if ($.isFunction(onOK)) {
+            var userOK = onOK;
+            onOK = function () {
+                var $input = $(this).find("input");
+                var text = $input.val();
+                return userOK.call(this, text, $input[0]);
+            };
+        }
+
+        // cria a janela de diálogo
+        var dialog = $.uiDialog({
+            title: null,
+            text: contents,
+            onOK: onOK,
+            onCancel: obj.onCancel,
+            okText: obj.okText,
+            cancelText: obj.cancelText
+        });
+
+        // reduz o tamanho do modal, se necessário
+        adjustDialogSize(dialog, obj.size);
+
+        // cria o handler que dispara OK ao apertar ENTER
+        var $input = dialog.find("input");
+
+        if (obj.default)
+            $input.val(obj.default);
+
+        $input.on("keydown", function (e) {
+            if (e.which == 13)
+                dialog.find(".sidra-modal-ok").click();
+        });
+
+        return dialog;
+    };
+
+    // define um container de elemento de interface. não interfere no layout, apenas serve para centralizar o tratamento de eventos
+    $.fn.uiContainer = function (callback, data) {
+        var element = $(this);
+        var pluginField = uiPrefix + "container";
+        //
+        if (!element.data(pluginField)) {
+            var handler = { "data": data, "callback": callback };
+            element
+                .data(pluginField, handler)
+                .on("click", ".sidra-check,.sidra-radio", handler, uiHandler);
+        }
+        return element;
+    }
+
+    function uiHandler(e) {
+        // only execute if element is enabled
+        var element = $(this);
+        if (!element.hasClass("disabled")) {
+            // get handler and overwrite the event data with handler data
+            var handler = e.data;
+            e.data = handler.data;
+            // get new state from current state (toggle if checkbox; check if radio)
+            var isRadio = element.hasClass("sidra-radio");
+            var check = (isRadio ? true : !element.hasClass('checked'));
+            // chama o callback do usuario e, se não foi abortado, alterar o estado do elemento
+            if (handler.callback.call(element, e, check) != false) {
+                if (isRadio)
+                    element.uiRadio("check", check);
+                else
+                    element.uiCheckbox("check", check);
+            }
+        }
+        // previne que o tratamento padrão seja lançado
+        if (e.originalEvent)
+            e.originalEvent.returnValue = false;
+        e.preventDefault();
+    }
+
+    var checkState = {
+        // checked state
+        "true": " checked",
+        1: " checked",
+        "checked": " checked",
+        // unchecked state
+        2: " indeterminate",
+        "indeterminate": " indeterminate"
+        // any other values should map to "" for unchecked
+    };
+
+    function ariaValue(checked) {
+        return "aria-selected='" + (checked > 0) + "'";
+    }
+
+    function checkClass(element, state) {
+        return element.removeClass("checked indeterminate").addClass(checkState[state] || "");
+    }
+
+    function checkboxInvalidMethod() {
+        throw "[uiCheckBox] Invalid method call.";
+    }
+
+    function checkFromCounter(check, total) {
+        return (!check ? 0 : total === $undefined || check == total ? 1 : 2);
+    }
+
+    var checkboxMethods = {
+        "checked": function (check, total) {
+            // if check parameter is undefined, return check state
+            if (check === $undefined)
+                return (this.hasClass("checked") || (this.hasClass("indeterminate") ? "indeterminate" : false));
+            // else, execute check
+            checkboxMethods.check.call(this, check, total);
+        },
+        "check": function (check, total) {
+            var checkStatus = checkFromCounter(check, total);
+            // set aria-checked attribute
+            this.children(".sidra-toggle").attr("aria-selected", checkStatus > 0);
+            return checkClass(this, checkStatus);
+        },
+        "contents": function (text) {
+            return removeContents(this).append(text);
+        }
+    };
+
+    function radioInvalidMethod() {
+        throw "[uiRadio] Invalid method call.";
+    }
+
+    var radioMethods = {
+        "checked": function () {
+            // return check state
+            return this.hasClass("checked");
+        },
+        "check": function (check) {
+            // uncheck all other checkboxes in group, if it's defined
+            var group = this.attr("data-group");
+            if (group)
+                $("button.sidra-toggle") // start selection by "button.sidra-toggle" for better performance
+                    .parent(".sidra-radio.checked[data-group=" + group + "]")
+                    .removeClass("checked");
+            // check element
+            return this.toggleClass("checked", check != false);
+        }
+    };
+
+    // some aliases
+    checkboxMethods.text = checkboxMethods.contents;
+    radioMethods.contents = checkboxMethods.contents;
+    radioMethods.text = checkboxMethods.contents;
+
+    // lower level procedure to remove contents (even text nodes) without changing toggle button
+    function removeContents(element) {
+        var el = element[0];
+        var count = el.childNodes.length;
+        while (--count > 0) // leave only one element
+            el.removeChild(el.lastChild);
+        return element;
+    }
+
+    // plugin for customized checkboxes
+    // constructor:
+    //   .uiCheckbox(checked, callback)
+    // method call:
+    //   .uiCheckbox("checked") - return checked states (true, false, "indeterminate")
+    //   .uiCheckbox("checked", check) - check/uncheck according to "checked" parameter
+    //   .uiCheckbox("checked", checked, total)
+    //      check according to params: uncheck (checked == 0), indeterminate (checked < total), check (checked == total)
+    $.fn.uiCheckbox = function (arg1, arg2, arg3) {
+        var element = $(this);
+        // if object is already a checkbox, do a method call
+        if (element.hasClass('sidra-check'))
+            return (checkboxMethods[arg1] || checkboxInvalidMethod).call(element, arg2, arg3);
+        // else, process parameters for creation
+        var check, total, callback;
+        if (isNaN(arg2)) {
+            check = arg1;
+            callback = arg2;
+        }
+        else {
+            check = arg1;
+            total = arg2;
+            callback = arg3;
+        }
+        // create element and do check
+        element.addClass("sidra-check")
+            .prepend('<button type="button" class="sidra-toggle"></button>');
+        //
+        checkboxMethods.check.call(element, check, total);
+        // define callback, if required, and return element
+        return ($.isFunction(callback) ? element.data('_ui_cbk', arg2) : element);
+    }
+
+    // cria um checkbox customizado
+    // $.uiCheckbox(contents, checked, callback)
+    // $.uiCheckbox(contents, checked, total, callback)
+    $.uiCheckbox = function (contents, arg1, arg2, arg3) {
+        return $("<div/>").append(contents).uiCheckbox(arg1, arg2, arg3);
+    }
+
+    // returns only the text of a checkbox element (doesn't accept object data or callbacks)
+    $.uiCheckboxText = function (text, checked, total, attrs) {
+        var checkValue = checkFromCounter(checked, total);
+        var clss = "sidra-check" + (checkState[checkValue] || "");
+        return "<div class='" + clss + "'" + (attrs ? " " + attrs : "") + "><button type='button' class='sidra-toggle' " + ariaValue(checkValue) + "></button>" + text + "</div>";
+    }
+
+    // plugin for customized radio buttons
+    // constructor:
+    //   .uiRadio(state, group, callback) - ATTENTION: groups are not checked in constructor!
+    // method call:
+    //   .uiRadio("checked") - return checked states (true, false, "indeterminate")
+    //   .uiRadio("checked", check) - check/uncheck according to "checked" parameter
+    //   .uiRadio("checked", checked, total)
+    //      check according to params: uncheck (checked == 0), indeterminate (checked < total), check (checked == total)
+    $.fn.uiRadio = function (arg1, arg2, arg3) {
+        var element = $(this);
+        // if object is already a radio, do a method call
+        if (element.hasClass('sidra-radio'))
+            return (radioMethods[arg1] || radioInvalidMethod).call(element, arg2);
+        // else, create element
+        element
+            .addClass("sidra-radio")
+            .toggleClass("checked", !!arg1)
+            .prepend('<button type="button" class="sidra-toggle"></button>');
+        // if a group is defined, set attribute
+        if (arg2)
+            element.attr('data-group', arg2)
+        // define callback, if required, and return element
+        return (arg3 ? element.data('_ui_cbk', arg3) : element);
+    }
+
+    // cria um radiobutton customizado
+    $.uiRadio = function (contents, checked, group, callback) {
+        return $("<div/>").append(contents).uiRadio(checked, group, callback);
+    }
+
+    // returns only the text of a radio element (doesn't accept object data or callbacks)
+    $.uiRadioText = function (text, checked, group, attrs) {
+        var clss = "sidra-radio" + (checked ? " checked" : "");
+        group = (group ? " data-group='" + group + "'" : "");
+        attrs = (attrs ? " " + attrs : "");
+        return "<div class='" + clss + "'" + group + attrs + "><button type='button' class='sidra-toggle'></button>" + text + "</div>";
+    }
+
+    // eventos para checkbox e radio buttons não processados pelo uiContainer
+    $("body").on("click", ".sidra-check", function (e) {
+        // give focus to toggle button
+        var $el = $(this);
+        $el.children(".sidra-toggle").focus();
+        // execute only if element is enabled and default behaviour was not prevented
+        var notPrevented = (!e.originalEvent ? !e.isDefaultPrevented() : !e.originalEvent.defaultPrevented && e.originalEvent.returnValue !== false)
+        if (notPrevented && !$el.hasClass("disabled")) {
+            // get element check state
+            var check = !$el.hasClass('checked');
+            // check for any binded callback
+            var callback = $el.data('_ui_cbk');
+            if (!callback || callback.call($el, check) !== false)
+                $el.uiCheckbox("check", check);
+        }
+    });
+    //
+    $("body").on("click", ".sidra-radio", function (e) {
+        // execute only if element is enabled and default behaviour was not prevented
+        var $el = $(this);
+        var notPrevented = (!e.originalEvent ? !e.isDefaultPrevented() : !e.originalEvent.defaultPrevented && e.originalEvent.returnValue !== false)
+        if (notPrevented && !$el.hasClass("disabled")) {
+            // check for any binded callback
+            var callback = $el.data('_ui_cbk');
+            if (!callback || callback.call($el, true) !== false)
+                $el.uiRadio("check", true);
+        }
+    });
+
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+
+    self.BasePlugin = function () { };
+    //
+    $.extend(self.BasePlugin.prototype, {
+        className: "noname",
+        defaults: {},
+        initialize: function (element, _) { },
+        //
+        error: function (message) {
+            throw "[UI:" + this.className + "] " + message;
+        }
+    });
+
+    // cria todos os plugins numa porrada só
+    while (plugins.length)
+        registerPlugin.call(this, plugins.pop());
+
+    // create an empty function, to avoid using Function.prototype
+    var F = function () { };
+    // register all plugin in jQuery namespace
+    function registerPlugin(name, attrs) {
+        // create plugin main function
+        var Class = derive(name, "BasePlugin", attrs);
+        // create the anonymous jQuery interface (called with $.plugin)
+        var pluginName = uiPrefix + name;
+        $[pluginName] = function () {
+            // create an empty <div> and call the element plugin on it
+            return $.fn[pluginName].apply($("<div>"), arguments);
+        };
+        // create the jQuery interface for element plugin
+        var fieldName = fieldPrefix + name;
+        $.fn[pluginName] = function (arg1, _) {
+            var element = $(this);
+            var plugin = element.data(fieldName);
+            if (!plugin) {
+                // if the plugin is not attached, create it and initialize with the parameters
+                var args = [{}, element];
+                args.push.apply(args, arguments);
+                var plugin = new (F.bind.apply(Class, args));
+                return element.data(fieldName, plugin);
+            }
+            else {
+                // if the plugin is attached, it's a method execution
+                if (typeof arg1 !== 'string')
+                    throw 'Method name not specified';
+                // if method name is specified, get it's function
+                var method = plugin['_' + arg1];
+                // if function is not defined, throw an error
+                if (!method)
+                    throw 'Method not found: ' + arg1;
+                // if method is defined, execute it
+                var args = [].slice.call(arguments, 1);
+                return method.apply(plugin, args);
+            }
+        }
+    }
+
+    function derive(name, base, attrs) {
+        // define the plugin constructor
+        var Class = self[name] = function (_) {
+            this.initialize.apply(this, arguments);
+        };
+        // if a base class is specified, extend prototype
+        var Base = self[base || ""];
+        if (Base)
+            Class.prototype = new Base();
+        // create className field and extend attributes
+        var proto = Class.prototype;
+        proto.className = name;
+        if (attrs) {
+            for (var key in attrs)
+                proto[key] = attrs[key];
+        }
+        //
+        return Class;
+    }
+
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+
+    // define o template de modais
+    var templateModal = [
+        '<div class="modal-dialog">',
+        '<div class="modal-content">',
+        '<div class="modal-header">',
+        '{{if hasClose}}<button type="button" class="close" data-dismiss="modal">&times;</button>{{/if}}',
+        '<h4 class="modal-title">{{html title}}</h4>',
+        '</div>',
+        '<div class="modal-body"></div>',
+        '<div class="modal-footer">',
+        '{{if ok}}<button type="button" class="btn btn-default sidra-modal-ok" data-dismiss="modal">${ok}</button>{{/if}}',
+        '{{if cancel}}<button type="button" class="btn btn-default sidra-modal-cancel" data-dismiss="modal">${cancel}</button>{{/if}}',
+        '</div>',
+        '</div>',
+        '</div>'
+    ].join("");
+
+    // opções padrão do modal
+    var modalDefaults = {
+        id: null,
+        "class": "",
+        size: "normal",
+        visible: false,
+        //
+        header: null,
+        title: "",
+        hasClose: true,
+        //
+        body: "",
+        //
+        footer: "",
+        ok: false,
+        cancel: false,
+        //
+        beforeShow: null,
+        afterShow: null,
+        beforeHide: null,
+        afterHide: null,
+        //
+        onOK: null,
+        onCancel: null
+    };
+
+    var modalEventMap = {
+        "beforeShow": "show.bs.modal",
+        "afterShow": "shown.bs.modal",
+        "beforeHide": "hide.bs.modal",
+        "afterHide": "hidden.bs.modal"
+    };
+
+    // cria um modal segundo o template e associa nomes amigáveis a eventos
+    $.extend(self.Modal.prototype, {
+        initialize: function (element, options) {
+            // processa as opções
+            options = $.extend({}, modalDefaults, options);
+
+            if (!options.id)
+                this.error("Missing required parameter \"id\".");
+
+            if (options.ok === true)
+                options.ok = "OK";
+
+            if (options.cancel === true)
+                options.cancel = "Cancel";
+
+            // cria o modal
+            this.options = options;
+
+            this.element = element
+                .attr("id", options.id)
+                .attr("role", "dialog")
+                .addClass("modal fade sidra-dialog")
+                .addClass(options["class"])
+                .append($.tmpl(templateModal, options))
+                .appendTo($("body"));
+
+            this.element
+                .modal(options.visible ? "show" : "hide");
+
+            if (options.size !== "normal")
+                element.find(".modal-dialog").toggleClass(options.size === "large" ? "modal-lg" : "modal-sm");
+
+            // cria referências para os campos relevantes
+            this.dialog = element.find(".modal-dialog");
+            this.header = element.find(".modal-header");
+            this.title = this.header.find(".modal-title");
+            this.body = element.find(".modal-body");
+            this.footer = element.find(".modal-footer");
+
+            // seta os eventos de show e hide
+            this.canceled = true;
+            element.find(".sidra-modal-ok").on("click", this, this.evtOk);
+            element.on(modalEventMap.afterHide, this, this.evtAfterHide);
+
+            for (var evt in modalEventMap) {
+                if ($.isFunction(options[evt]))
+                    element.on(modalEventMap[evt], element, options[evt]);
+            }
+
+            // preenche com o conteúdo do usuário
+            this.header.append(options.header);
+            this.body.append(options.body);
+
+            if (options.ok || options.cancel)
+                this.footer.append(options.footer)
+            else
+                this.footer.hide();
+
+            // retorna o modal
+            return element;
+        },
+
+        _header: function (arg) {
+            return this.getOrSet("header", arg);
+        },
+
+        _title: function (arg) {
+            if (arg === $undefined) {
+                // o parâmetro não foi definido. é um getter
+                return this.title;
+            }
+            else {
+                // senão, parâmetro de título está definido.
+                if (arg == null) {
+                    // se o valor é nulo, esconder a barra de título
+                    this.title.parent().addClass("hidden");
+                }
+                else {
+                    // senão, preencher o texto e exibir a barra
+                    this.title.empty().append(arg);
+                    this.title.parent().removeClass("hidden");
+                }
+                return this.element;
+            }
+        },
+
+        _body: function (arg) {
+            return this.getOrSet("body", arg);
+        },
+
+        _dialog: function () {
+            return this.dialog;
+        },
+
+        getOrSet: function (field, arg) {
+            if (arg === $undefined)
+                return this[field];
+            else {
+                this[field].empty().append(arg);
+                return this.element;
+            }
+        },
+
+        _show: function () {
+            return this.element.modal("show");
+        },
+
+        _hide: function () {
+            return this.element.modal("hide");
+        },
+
+        evtOk: function (e) {
+            var editor = e.data;
+            editor.canceled = false;
+            if ($.isFunction(editor.options.onOK))
+                return editor.options.onOK.call(editor.element[0], e);
+        },
+
+        evtAfterHide: function (e) {
+            var editor = e.data;
+
+            if (editor.canceled && $.isFunction(editor.options.onCancel))
+                editor.options.onCancel.call(editor.element[0], e);
+
+            editor.canceled = true;
+
+            // corrige o comportamento padrão do bootstrap, que sempre remove o "modal-open" do body sem
+            // antes verificar se ainda existe algum modal aberto (não foi pensado pra ter 2 níveis de modal)
+            if ($(".modal.in").length)
+                $(document.body).addClass('modal-open');
+        }
+    });
+
+
+    // ************************************************************************************************************************
+
+
+    var caretSpacing = '&nbsp;&nbsp;';
+    var caretTemplate = '<span class="caret"></span><span class="sr-only">Toggle Dropdown</span>';
+    var toggleTemplate = '<button class="btn btn-default" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"></button>';
+
+    $.extend(self.Dropdown.prototype, {
+        defaults: {
+            style: "toggle",	// "toggle", "flat", "button"
+            mode: "select",		// "select", "options", "menu"
+            selected: 0,
+            width: null,
+            hasCaret: true,
+            hasInput: false,
+            toggleWidth: null,  // available only when dropdown has input
+            position: "left", // "left", "right"
+            up: false,
+            icon: "",
+            text: "",
+            items: null,
+            enable: true,
+            context: null,
+            onChange: null
+        },
+        _styles: "|toggle|flat|button|",
+        _modes: "|select|options|menu|",
+        _positions: "|left|right|",
+
+        _argumentMap: [
+            ["element", "text", "items", "style", "onChange"],
+            ["element", "items", "style", "onChange"]
+        ],
+
+        // initialize(element, text, items, style, onChange)
+        // initialize(element, items, style, onChange)
+        // initialize(element, options)
+        initialize: function (element, arg1, arg2, arg3, arg4) {
+            //this._blau();
+            // process parameters
+            this.element = element;
+            var options;
+            if (typeof arg1 === 'string')
+                options = mapArguments(this._argumentMap[0], arguments);
+            else if ($.isArray(arg1))
+                options = mapArguments(this._argumentMap[1], arguments);
+            else
+                options = (arg1 || {});
+            // extend default options and process
+            options = $.extend({}, this.defaults, options);
+            this.processOptions(options);
+            // create the dropdown html
+            this.createComponent();
+            // create state object
+            this.state = {
+                index: -1,
+                id: -1,
+                text: (this.hasInput ? "" : $undefined)
+            };
+            // if mode is not 'select', set dropdown text
+            if (this.mode !== 'select')
+                this._text(this.text);
+            // if items are not defined, clear list
+            if (!this.items)
+                this._clear(true);
+            else
+                // else, load items list
+                this._items(this.items, this.selected);
+            // if width option is defined, set it
+            if (this.width)
+                this._width(this.width);
+            if (!options.enable)
+                this._enable(false);
+            // set loaded
+            this.loaded = true;
+            // object chaining
+            return this.element;
+        },
+
+        processOptions: function (options) {
+            if (this._styles.indexOf("|" + options.style + "|") < 0)
+                this.error('Invalid style "' + options.style + '"');
+            //
+            if (this._modes.indexOf("|" + options.mode + "|") < 0)
+                this.error('Invalid mode "' + options.mode + '"');
+            //
+            if (this._positions.indexOf("|" + options.position + "|") < 0)
+                this.error('Invalid toggle position "' + options.position + '"');
+            //
+            if (!options.items || !$.isArray(options.items))
+                options.items = [];
+            //
+            if (options.onChange && !$.isFunction(options.onChange))
+                this.error('Parameter "onChange" is not a function.');
+            //
+            if (options.hasInput && options.style === "toggle") {
+                console.log("[UI:Dropdown] A dropdown with toggle style can't have input. Changing to flat style.");
+                options.style = "flat";
+            }
+            //
+            for (var key in options)
+                this[key] = options[key];
+            //
+            this.up = (options.up === true);
+            this.icon = (this.icon || "");
+            this.feedback = (this.mode === "select");
+            this.selected = (Number(options.selected) || 0);
+        },
+
+        createComponent: function () {
+            // create dropdown html
+            this.createDropdown();
+
+            var title = this.title;
+
+            if (title) {
+                this.html.toggle
+                    .attr("aria-label", title)
+                    .attr("title", title);
+            }
+
+            // define events
+            this.html.dropdown
+                .on('show.bs.dropdown', this, this.onShowEvent)
+                .on('hidden.bs.dropdown', this, this.onHideEvent)
+                .on('click', 'li', this, this.onChangeEvent);
+
+            //
+            if (this.hasInput) {
+                this.html.input
+                    .on('keyup', this, this.onKeyUpEvent)
+                    .on('focus', this, this.onFocusEvent)
+                    .on('blur', this, this.onBlurEvent);
+                this.timeout = null;
+            }
+        },
+
+        createDropdown: function () {
+            this.element.empty().addClass('ui-dropdown');
+            if (this.up)
+                this.element.addClass("dropup");
+            //
+            this.html = {};
+            this.html.dropdown = $("<div></div>")
+                .attr("id", getId());
+            // create dropdown button and an empty html list
+            this.createButton();
+            this.html.list = $('<ul class="dropdown-menu"></ul>')
+                .toggleClass("dropdown-menu-right", this.position !== "left")
+                .appendTo(this.html.dropdown);
+            //
+        },
+
+        // DEPOIS MELHORAR ESSAS ROTINAS AQUI, QUE TA MEIO FEIO ************
+        createButton: function () {
+            var html = this.html;
+            if (this.style === 'toggle') {
+                html.text = $(toggleTemplate).addClass("dropdown-text clear");
+                html.toggle = $(toggleTemplate).addClass("dropdown-toggle")
+                //
+                html.dropdown.addClass('btn-group').append(html.text, html.toggle).appendTo(this.element);
+            }
+            else {
+                html.text = $('<span>&nbsp;</span>');
+                html.toggle = $(toggleTemplate).addClass("dropdown-toggle dropdown-text")
+                    .toggleClass("clear", this.style === 'flat')
+                    .append(html.text);
+                //
+                if (!this.hasInput) {
+                    html.dropdown.addClass("dropdown").prepend(html.toggle).appendTo(this.element);
+                }
+                else {
+                    html.input = $("<input type='text' class='form-control'/>")
+                        .css("width", "100%");
+                    //
+                    html.dropdown.addClass("input-group-btn").prepend(html.toggle);
+                    var group = $("<div class='input-group'></div>").append(this.position == "left"
+                        ? [html.dropdown, html.input]
+                        : [html.input, html.dropdown]
+                    ).appendTo(this.element);
+                }
+            }
+            //
+            html.toggle.toggleClass("has-caret", this.hasCaret);
+            if (this.hasCaret)
+                html.toggle.append(caretTemplate)
+        },
+
+        _width: function (width) {
+            var html = this.html;
+            if (this.style !== 'toggle') {
+                if (this.hasInput) {
+                    this.element.css("width", width);
+                    width = (this.hasInput && this.toggleWidth) || "auto";
+                }
+                html.toggle
+                    .css('width', width)
+                    .css('max-width', width);
+            }
+            else {
+                html.text.css('width', (width - BTN_WIDTH) + 'px');
+                html.toggle.css('width', BTN_WIDTH + 'px');
+            }
+            return this.element;
+        },
+
+        _wrap: function () {
+            // if dropdown is closed, we must open it before reading items width
+            var dropdown = this.html.dropdown
+                .addClass("open");
+            // iterate through all items to get the max width
+            var items = this.html.list.children().children();
+            var max = Number.MIN_VALUE;
+            for (var i = 0; i < items.length; i++)
+                max = Math.max(max, $(items[i]).width());
+            // close dropdown
+            dropdown.removeClass("open");
+            // set width of text element and return
+            var text = this.html.text;
+            var padding = parseInt(text.css("padding-left")) + parseInt(text.css("padding-right"));
+            text.css("width", max + padding + 4); // give some more space, to avoid rounding errors
+            return this.element;
+        },
+
+        _open: function () {
+            this.element.addClass("active");
+            this.html.dropdown.addClass("open");
+        },
+
+        itemContent: function (item) {
+            return item.children('a').html();
+        },
+
+        _addDivider: function () {
+            var item = $('<li role="separator" class="divider"></li>')
+                .appendTo(this.html.list);
+            return this.element;
+        },
+
+        _addHeader: function (text) {
+            var item = $('<li class="dropdown-header">' + (text || '&nbsp;') + '</li>')
+                .appendTo(this.html.list);
+            return this.element;
+        },
+
+        // createItem(contents)
+        // createItem(text [, id])
+        //   if content first char is '*', the text is treated as a label. if content is '-',
+        //   it's a divider. else, it's an element
+        _addItem: function (contents, id, enable) {
+            // if content is an object, expant it's properties in a recursive call
+            if (typeof contents === 'object')
+                return this._addItem(contents.text, contents.id, contents.enable);
+            //
+            var text = (contents || "&nbsp;"); // it's not good to directly change a parameter
+            //
+            if (text === '-')
+                return this._addDivider();
+            else if (text.charAt(0) === '*')
+                return this._addHeader(text.slice(1));
+            // else, it's a simple text entry
+            enable = (enable !== false);
+            var index = (this.items.total++);
+            var item = $('<li><a href="#">' + text + '</a></li>')
+                .attr('data-index', index)
+                .toggleClass("disabled", !enable)
+                .appendTo(this.html.list);
+            // set references for element
+            this.items[index] = item;
+            if (id)
+                this.items[id] = item.attr('data-id', id);
+            //
+            return this.element;
+        },
+
+        _enable: function (state) {
+            this.html.dropdown.children("button.btn")
+                .toggleClass('disabled', state === false);
+            return this.element;
+        },
+        _disable: function (state) {
+            return this._enable(!(state != false));
+        },
+        // 
+        _clear: function (noselect) {
+            this.html.list.empty();
+            this.items = { total: 0 };
+            if (!noselect)
+                this._select(0);
+            return this.element;
+        },
+
+        _text: function (text) {
+            if (this.hasInput) {
+                if (this.timeout)
+                    clearTimeout(this.timeout);
+                text = (text || "");
+                this.state.text = text;
+                this.html.input.prop("value", text);
+            }
+            return this.element;
+        },
+
+        _reset: function () {
+            this._text("");
+            this._select(-1);
+            return this.element;
+        },
+
+        // define o contéudo do texto do dropdown
+        // text(content)
+        _text: function (content) {
+            this.html.text.empty().append(this.icon ? this.icon + content : (content || '&nbsp;'));
+            return this.element;
+        },
+
+        // items(items, [selected]): define a lista de elementos a partir de um array
+        _items: function (items, selected) {
+            // apaga o menu e itera todos os elementos
+            this._clear(true);
+            var container = this.html.list;
+            //
+            for (var i = 0; i < items.length; i++)
+                this._addItem(items[i]);
+            // se for o modo 'select', colocar o primeiro elemento como selecionado
+            if (this.mode === 'select')
+                this._select(selected || 0);
+            //
+            return this.element;
+        },
+
+        // select(index/id)
+        _select: function (index) {
+            this.changeEvent(this.items[index], false);
+            return this.element;
+        },
+
+        _selected: function () {
+            return this.state.index;
+        },
+
+        _selectedId: function () {
+            return this.state.id;
+        },
+
+        _state: function () {
+            return $.extend({}, this.state);
+        },
+
+        _toggle: function () {
+            this.html.toggle.dropdown('toggle');
+            return this.element;
+        },
+
+        updateSelection: function (item) {
+            if (!item && this.mode === 'select')
+                return;
+
+            // atualiza a classe de elemento ativo
+            if (this.selected)
+                this.selected.removeClass('active');
+            //
+            this.selected = item;
+            if (item && !item.hasClass("disabled") && this.mode !== 'menu')
+                item.addClass('active');
+            //
+            if (this.feedback) {
+                var text = (item ? this.itemContent(item) : this.text);
+                this.html.text.empty().append(this.icon ? this.icon + text : (text || '&nbsp;'));
+            }
+        },
+
+        changeEvent: function (item, trigger) {
+            this.updateSelection(item);
+            if (!item)
+                return false;
+
+            var index = Number(item.attr('data-index'));
+            if (isNaN(index))
+                return false;
+
+            this.clearTimeout();
+
+            // if has input, give focus to it, else, toggle active
+            if (this.hasInput)
+                this.html.input.focus();
+            else
+                this.toggleActive();
+
+            // get properties and trigger user callback, if required
+            this.state.index = index;
+            this.state.id = item.attr('data-id');
+            if (trigger)
+                this.callback();
+
+            // close dropdown
+            if (this.mode !== "menu" && this.html.dropdown.hasClass('open'))
+                this._toggle();
+            //
+            return true;
+        },
+
+        delayedKeyUp: function () {
+            this.clearTimeout();
+            this.activate();
+            //
+            var that = this;
+            this.timeout = setTimeout(function () {
+                that.timeout = null;
+                that.keyUpEvent();
+            }, 400);
+        },
+
+        keyUpEvent: function () {
+            this.state.text = this.html.input.prop("value");
+            this.callback();
+        },
+
+        clearTimeout: function () {
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+                this.timeout = null;
+            }
+        },
+
+        // set as active unconditionaly 
+        activate: function () {
+            this.element.addClass("active");
+        },
+
+        // toggle active class based on state and dropdown visibility
+        toggleActive: function () {
+            var state = this.state;
+            this.element.toggleClass("active", this.hasFocus || !!(state.index > 0 || state.text || this.html.dropdown.hasClass("open")));
+        },
+
+        callback: function () {
+            if (this.loaded && this.onChange)
+                this.onChange.call(this.context || this.element, this._state());
+        },
+
+        onChangeEvent: function (e) {
+            // update selected item
+            var plugin = e.data;
+            var element = $(this);
+
+            if (!element.hasClass("disabled"))
+                plugin.changeEvent(element, true);
+
+            e.stopPropagation();
+
+            if ($(e.target).is("input"))
+                console.log("tem que resolver essa bagaça de checkbox dentro de dropdown")
+
+            if ($(e.target).is("a")) {
+                e.preventDefault();
+                return false;
+            }
+        },
+
+        onKeyUpEvent: function (e) {
+            // update selected item
+            var plugin = e.data;
+            plugin.delayedKeyUp();
+            return false;
+        },
+
+        onShowEvent: function (e) {
+            e.data.activate();
+        },
+
+        onHideEvent: function (e) {
+            e.data.toggleActive();
+        },
+
+        onFocusEvent: function (e) {
+            var plugin = e.data;
+            plugin.hasFocus = true;
+            plugin.activate();
+        },
+
+        onBlurEvent: function (e) {
+            var plugin = e.data;
+            plugin.hasFocus = false;
+            e.data.toggleActive();
+        }
+
+
+    });
+
+
+    $.extend(self.Menu.prototype, {
+        initialize: function () {
+            var context = [];
+
+        },
+        buttonGroup: function () {
+
+        },
+        end: function () {
+            return this.element();
+        }
+    });
+
+    function mapArguments(map, args) {
+        var options = {};
+        for (var i = 0; i < map.length; i++)
+            if (args[i])
+                options[map[i]] = args[i];
+        return options;
+    }
+
+    $.fn.uiFaceAndRemove = function (time) {
+        return $(this).fadeOut(time, function () {
+            $(this).remove();
+        });
+    };
+
+    $.fn.uiSlideUpAndRemove = function (time) {
+        return $(this).slideUp(time, function () {
+            console.log(this)
+            $(this).remove();
+        });
+    };
+
+})(jQuery);
+
+// define Function.bind se não existir
+// obtido de: http://stackoverflow.com/questions/11054511/how-to-handle-lack-of-javascript-object-bind-method-in-ie-8
+if (!Function.prototype.bind) {
+    Function.prototype.bind = function (oThis) {
+        if (typeof this !== 'function') {
+            // closest thing possible to the ECMAScript 5
+            // internal IsCallable function
+            throw new TypeError('Function.prototype.bind - what is trying to be bound is not callable');
+        }
+        var aArgs = [].slice.call(arguments, 1);
+        var fToBind = this;
+        var fNOP = function () { };
+        var fBound = function () {
+            return fToBind.apply((this instanceof fNOP && oThis ? this : oThis),
+                aArgs.concat([].slice.call(arguments)));
+        };
+        fNOP.prototype = this.prototype;
+        fBound.prototype = new fNOP();
+        return fBound;
+    };
+}
+
+function clicou(estado) {
+    console.log('selecionou');
+    console.log(estado);
+}
+
+function marcou(state) {
+    console.log('marcou');
+    console.log(this);
+    console.log(state);
+}

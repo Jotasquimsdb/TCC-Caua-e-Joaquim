@@ -1,0 +1,522 @@
+﻿/*
+#menu-opcoes-graficos {
+    background: white;
+
+    .nav {
+        padding-left: 20px;
+    }
+
+    .tab-content {
+        padding: 0 0;
+        margin: 0;
+        border: none;
+        padding: 10px 10px 0 10px;
+    }
+
+    .tab-pane {
+        //height: 128px;
+    }
+
+    .nav-tabs > li > a {
+        padding: 6px 6px;
+    }
+
+    td {
+        padding: 2px 6px;
+    }
+}
+*/
+.tabela-grande {
+  -webkit-transform: translateZ(0);
+  -moz-transform: translateZ(0);
+  -ms-transform: translateZ(0);
+  -o-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  -moz-backface-visibility: hidden;
+  backface-visibility: hidden;
+  white-space: nowrap;
+  overflow: visible;
+}
+.tabela-grande td,
+.tabela-grande th {
+  overflow: visible;
+}
+.editor-visao.loading-container {
+  overflow: hidden;
+}
+th.ord-pos {
+  text-align: center !important;
+}
+#menu-opcoes-graficos {
+  background: white;
+  white-space: nowrap;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding: 12px 0;
+}
+#graph-config-rotulos {
+  text-align: center;
+}
+#graph-dimensoes .form-control {
+  display: inline-block;
+  width: 80px;
+}
+#graph-salvar .form-control {
+  display: inline-block;
+  width: 96px;
+}
+#graph-btn-salvar {
+  width: 100%;
+  margin-top: 6px;
+}
+#graph-angulo .container-picker-angulo {
+  position: relative;
+  text-align: center;
+}
+#graph-angulo .container-picker-angulo > * {
+  vertical-align: top;
+}
+.botoes-picker-angulo {
+  display: inline-block;
+  padding-left: 20px;
+}
+.botoes-picker-angulo .btn {
+  display: block;
+}
+.botoes-picker-angulo .btn-up {
+  position: relative;
+  top: 0;
+  right: 0;
+}
+.botoes-picker-angulo .btn-down {
+  position: absolute;
+  bottom: 0;
+  right: 1px;
+}
+.picker-angulo {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+}
+.picker-angulo .picker-angulo-imagem {
+  background-image: url("imagens/angle-picker-1.svg");
+  background-size: 64px 64px;
+  width: 64px;
+  height: 64px;
+  position: relative;
+  display: inline-block;
+}
+.picker-angulo svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.picker-angulo svg text {
+  font-size: 16px;
+}
+.picker-angulo:hover text {
+  fill: #26A;
+}
+@media screen and (max-width: 440px) {
+  #menu-opcoes-graficos .nav {
+    padding-left: 6px;
+  }
+}
+.container-tabelas {
+  position: relative;
+}
+.float-grafico {
+  position: absolute;
+  right: 0;
+  top: 0;
+  background: rgba(255, 255, 255, 0.3);
+}
+#graph-botoes-estilo {
+  min-width: 128px;
+}
+#botao-opcoes-graficos {
+  display: none;
+}
+.visualizar #botao-opcoes-graficos {
+  display: inline-block;
+}
+#modal-graficos {
+  overflow: auto;
+}
+#modal-graficos .modal-header {
+  min-height: 40px;
+}
+#modal-graficos.visualizar .modal-body {
+  padding-top: 0;
+}
+#modal-graficos .btn {
+  line-height: 1;
+}
+#modal-graficos > .modal-dialog {
+  -moz-transition: width 0.4s, height 0.4s, margin 0.4s;
+  -o-transition: width 0.4s, height 0.4s, margin 0.4s;
+  -webkit-transition: width 0.4s, height 0.4s, margin 0.4s;
+  transition: width 0.4s, height 0.4s, margin 0.4s;
+}
+#modal-graficos.configurar > .modal-dialog {
+  width: 300px;
+  margin: 30px auto;
+  /* copiado do padrão do bootstrap, pra ele não ficar em tela cheia (o conteúdo da configuração ocupa pouco espaço) */
+}
+#modal-graficos.configurar > .modal-dialog #graph-config,
+#modal-graficos.configurar > .modal-dialog #modal-titulo {
+  display: block;
+}
+#modal-graficos.visualizar > .modal-dialog #graph-dados {
+  display: block;
+}
+#modal-graficos.visualizar > .modal-dialog #graph-tools {
+  display: inline;
+}
+#modal-graficos.visualizar.fix > .modal-dialog {
+  min-width: 280px;
+  min-height: 240px;
+  width: auto;
+  text-align: center;
+}
+#modal-graficos.visualizar.fix > .modal-dialog > .modal-content {
+  width: auto;
+  display: inline-block;
+  text-align: left;
+}
+#graph-config {
+  width: 260px;
+  margin: auto;
+  display: none;
+}
+#graph-tools {
+  display: none;
+}
+#graph-tools .btn-group {
+  float: none;
+}
+#graph-tools .dropdown-menu {
+  padding: 24px;
+  padding-bottom: 12px;
+}
+#graph-dados {
+  display: none;
+}
+.wrapper-grafico {
+  text-align: center;
+}
+.wrapper-grafico > div {
+  margin: auto;
+}
+.titulo-graficos {
+  font-family: Calibri;
+  font-size: 18px;
+  color: #336;
+  padding: 0;
+  margin: 0 0 2px 10px;
+}
+.titulo-graficos:first-child {
+  border-top: none;
+}
+.titulo-graficos:before {
+  content: "- ";
+  display: inline-block;
+  position: absolute;
+  margin-left: -10px;
+}
+#graph-container {
+  overflow: hidden;
+  margin-top: 12px;
+}
+#graph-container h4 {
+  background-color: #FAFAFA;
+  font-family: Calibri;
+  font-size: 18px;
+  border-top: 1px solid #AAA;
+  border-bottom: 1px solid #AAA;
+  padding: 8px;
+  text-align: center;
+  margin-top: 0;
+}
+#graph-container h5 {
+  font-family: Calibri;
+  font-size: 16px;
+  background-color: #446;
+  color: white;
+}
+#graph-container .nvtooltip {
+  white-space: normal;
+}
+/* Estilos referentes à visibilidade dos campos de configuração do gráfico */
+#graph-ctrl-wrapper > form {
+  width: 220px;
+}
+#graph-ctrl-wrapper .control-label {
+  font-weight: normal;
+}
+#graph-ctrl-wrapper hr {
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+/* Estilos referentes à barra de ferramentas do editor */
+.ferramentas-visao {
+  position: relative;
+  margin-right: 20px;
+}
+.ferramentas-visao a {
+  /* Reduz as margens padrão dos itens do dropdown */
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+}
+.ferramentas-visao label {
+  font-weight: normal;
+  margin: 0;
+}
+.ferramentas-visao > * {
+  margin-right: 12px;
+}
+/* Estilos referentes à visualização da tabela */
+.wrapper-tabela {
+  position: relative;
+}
+table.visao {
+  cursor: pointer;
+  overflow: hidden;
+  width: auto;
+  max-width: none;
+  border: none;
+  /* tive que separar as bordas assim porque o IE tava cagando a renderizaçao. */
+  border-top: 1px solid #5E98C4;
+  border-left: 1px solid #5E98C4;
+  border-collapse: separate;
+  border-spacing: 0;
+  /* Coloquei ">" pra aumentar a especificidade dos seletores sobre os do bootstrap, e não precisar de !important */
+  /* Efeitos relativos à interação com usuário */
+}
+table.visao .titulo {
+  text-align: center;
+  background: #5E98C4;
+  color: white;
+}
+table.visao tr > th,
+table.visao tr > td {
+  /* tive que separar as bordas assim porque o IE tava cagando a renderizaçao. */
+  border-right: 1px solid #5E98C4;
+  border-bottom: 1px solid #5E98C4;
+  vertical-align: middle;
+}
+table.visao thead > tr > th {
+  text-align: center;
+  vertical-align: middle;
+  background: #edf3f8;
+}
+table.visao tfoot > tr > th {
+  text-align: left;
+  vertical-align: middle;
+  background: #edf3f8;
+}
+table.visao tbody > tr > th {
+  background: #f9f9f9;
+  text-align: left;
+}
+table.visao tbody > tr > td {
+  text-align: right;
+}
+table.visao th.rotulo.ord {
+  background: #d7e6f4;
+  /*text-decoration: underline;*/
+}
+table.visao col.hover {
+  background-color: #ecf8eb;
+}
+table.visao td.sel {
+  background: #e5d3f3 !important;
+}
+table.visao td.sel.hover {
+  background: #dcbcf4 !important;
+}
+table.visao td.ord {
+  font-weight: 700;
+}
+table.visao .rodape.fonte {
+  text-align: center;
+}
+.ordenar th {
+  cursor: not-allowed;
+}
+.ordenar tr > th.dados {
+  cursor: pointer;
+}
+.selecionar th.hover {
+  background-color: #deeaf6;
+}
+.selecionar tr.hover > td {
+  background-color: #ecf8eb;
+}
+.selecionar tr.hover > td.hover {
+  background-color: #cbefca;
+}
+.ordenar th.coluna.dados {
+  background-color: #f6e5e5;
+}
+.ordenar th.coluna.dados.hover {
+  background-color: #f3cfcf;
+}
+/*************************************************************************/
+table.visao button {
+  position: relative;
+  float: right;
+  color: #888;
+}
+/* Estilos referentes à seleção de elementos da tabela */
+/* Estilos referentes ao retângulo de seleção */
+div.sel-overlay {
+  position: absolute;
+  overflow: visible;
+  width: 1px;
+  height: 1px;
+  -moz-transition: left 200ms, top 200ms;
+  -o-transition: left 200ms, top 200ms;
+  -webkit-transition: left 200ms, top 200ms;
+  transition: left 200ms, top 200ms;
+}
+div.sel-overlay div.borda {
+  position: absolute;
+  overflow: visible;
+  border: 2px solid #5E98C4;
+  width: 1px;
+  height: 1px;
+  cursor: pointer;
+  -moz-transition: width 200ms, height 200ms;
+  -o-transition: width 200ms, height 200ms;
+  -webkit-transition: width 200ms, height 200ms;
+  transition: width 200ms, height 200ms;
+}
+div.sel-overlay div.borda-l {
+  margin-left: -1px;
+}
+div.sel-overlay div.borda-r {
+  left: 100%;
+  margin-left: -1px;
+}
+div.sel-overlay div.borda-t {
+  margin-top: -1px;
+}
+div.sel-overlay div.borda-b {
+  top: 100%;
+  margin-top: -1px;
+}
+div.sel-overlay div.grip {
+  position: absolute;
+  z-index: 2;
+}
+div.sel-overlay div.grip.grip-1 {
+  left: 100%;
+}
+/* Meio estranho fazer 3 níveis de DIV pra fazer a pegada da, 
+           seleção mas centralizar o objeto na altura tava meio merda */
+div.sel-overlay div.grip > div {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  left: -7px;
+  top: -7px;
+  cursor: pointer;
+}
+div.sel-overlay div.grip > div > div {
+  position: relative;
+  background: rgba(212, 212, 212, 0.5);
+  border: 3px solid #D88;
+  width: 100%;
+  height: 100%;
+  -moz-border-radius: 50%;
+  -webkit-border-radius: 50%;
+  border-radius: 50%;
+}
+div.sel-overlay div.grip > div:hover,
+div.sel-overlay div.grip.in > div {
+  width: 16px;
+  height: 16px;
+  left: -8px;
+  top: -8px;
+}
+div.sel-overlay div.grip > div:hover > div,
+div.sel-overlay div.grip.in > div > div {
+  border: 3px solid #ed5d5d;
+}
+.nvtooltip h3 {
+  font-size: 16px;
+}
+#visao-opcoes-visualizacao {
+  display: inline-block;
+}
+@media screen and (max-width: 480px) {
+  #menu-opcoes-visualizacao .dropdown {
+    position: static;
+  }
+  #menu-opcoes-visualizacao .dropdown-menu {
+    width: 100%;
+  }
+  #menu-opcoes-visualizacao .dropdown-menu a {
+    white-space: normal;
+  }
+  table.visao.fonte-resultado {
+    font-size: 11px !important;
+  }
+  .titulo-graficos {
+    font-size: 16px;
+  }
+  .sidra-hidden-xxs {
+    display: none !important;
+  }
+  #graph-container h4 {
+    font-size: 16px;
+  }
+  #graph-container h5 {
+    font-size: 16px;
+  }
+  .ferramentas-visao button {
+    padding: 6px 8px;
+  }
+  .ferramentas-visao .btn {
+    font-size: 12px;
+  }
+  .ferramentas-visao > * {
+    margin-right: 6px;
+  }
+}
+.rotulo-medida {
+  pointer-events: none;
+}
+table.visao.fonte-resultado {
+  font-size: 13px;
+  max-width: 600px;
+  margin-top: 60px;
+  word-wrap: break-word;
+}
+table.visao.fonte-resultado td,
+table.visao.fonte-resultado th {
+  text-align: left;
+}
+.omitir-medidas .rotulo-medida,
+.omitir-indentacao .rotulo-indentacao,
+.omitir-uf .rotulo-uf,
+.omitir-comp1 .rotulo-comp1,
+.omitir-comp2 .rotulo-comp2,
+.omitir-soma .rotulo-soma,
+.omitir-notas .fonte-resultado {
+  display: none;
+}
+.abreviar-rotulos th {
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.no-border-top td {
+  border-top: none !important;
+}
+.no-border-bottom td {
+  border-bottom: none !important;
+}

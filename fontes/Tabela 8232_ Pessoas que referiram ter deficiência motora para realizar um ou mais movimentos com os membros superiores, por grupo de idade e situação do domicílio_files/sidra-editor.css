@@ -1,0 +1,60 @@
+﻿.ferramentas-editor {
+  display: table;
+  table-layout: auto;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  width: 100%;
+}
+.ferramentas-editor .form-group {
+  margin-bottom: 0;
+}
+.ferramentas-editor > * {
+  display: table-cell;
+  padding-left: 12px;
+}
+.ferramentas-editor > *:first-child {
+  padding-left: 0;
+}
+.ferramentas-fixed {
+  width: 1%;
+  white-space: nowrap;
+}
+.filtro-grupos {
+  max-width: 224px;
+}
+.ferramentas-botoes .btn-default {
+  /* Se mudar o estilo do bootstrap mudaria tudo, então resolvi mudar só aqui */
+  /*background: #fdfdff;*/
+}
+.ferramentas-botoes .btn.active {
+  color: #3a73d7;
+}
+.ferramentas-botoes .btn:focus {
+  outline: none;
+}
+.ferramentas-botoes > * {
+  margin-right: 8px;
+}
+.ferramentas-botoes .btn-group > .btn {
+  float: none;
+}
+.erro,
+.erro * {
+  color: #F00;
+}
+.sucesso,
+.sucesso * {
+  color: #2c77ba;
+}
+.item-lista {
+  display: inline-block;
+  white-space: nowrap;
+}
+.item-lista .sidra-check {
+  margin-left: 6px;
+}
+.wrapper-lista {
+  border: solid 1px #DDD;
+  padding: 4px;
+  overflow: hidden;
+}

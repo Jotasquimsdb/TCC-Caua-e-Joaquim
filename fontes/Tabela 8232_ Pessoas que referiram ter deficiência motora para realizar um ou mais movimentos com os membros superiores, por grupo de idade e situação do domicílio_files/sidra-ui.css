@@ -1,0 +1,122 @@
+﻿/************************************************************/
+/** CLASSES SIDRAICONS **************************************/
+/************************************************************/
+@font-face {
+  font-family: 'SidraIcons';
+  src: url('../fonts/SidraIcons.eot');
+  src: url('../fonts/SidraIcons.eot?#iefix') format('embedded-opentype'), url('../fonts/SidraIcons.woff') format('woff'), url('../fonts/SidraIcons.ttf') format('truetype'), url('../fonts/SidraIcons.svg#SidraIcons') format('svg');
+}
+.sidraicon {
+  font-family: 'SidraIcons';
+  position: relative;
+  top: 1px;
+  display: inline-block;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+}
+.sidraicon-splitter:before {
+  content: "\e001";
+}
+.sidraicon-summation:before {
+  content: "\2211";
+}
+.sidraicon-user:before {
+  content: "\e010";
+}
+.sidraicon-logout:before {
+  content: "\e011";
+}
+.sidraicon-graph:before {
+  content: "\e016";
+}
+.sidraicon-graph-stack:before {
+  content: "\e017";
+}
+.sidraicon-graph-expand:before {
+  content: "\e018";
+}
+.sidraicon-xlsx:before {
+  content: "\e030";
+}
+.sidraicon-embed:before {
+  content: "\e025";
+}
+.sidraicon-ods:before {
+  content: "\e031";
+}
+.sidraicon-rows:before {
+  content: "\e042";
+}
+.sidraicon-cols:before {
+  content: "\e041";
+}
+.progress-bar {
+  transition: none;
+  /* remove a transição, que fazia a atualização da barra ficar engasgando no IE */
+}
+.no-select {
+  /* Desabilita seleção de texto */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+.ui-split {
+  position: relative;
+  overflow: visible;
+  height: 100%;
+  width: 100%;
+}
+.ui-split:after {
+  content: "";
+  display: block;
+  clear: both;
+}
+.ui-split-grip {
+  position: absolute;
+  background: #DDD;
+  z-index: 10;
+}
+.ui-split.horizontal .ui-split-grip {
+  cursor: ew-resize;
+}
+.ui-split.vertical .ui-split-grip {
+  cursor: ns-resize;
+}
+.ui-split-grip:hover,
+.ui-split-grip.selected {
+  background: #44F;
+}
+.ui-split.horizontal .ui-panel {
+  height: 100%;
+  position: relative;
+}
+.ui-split.horizontal .ui-split-a {
+  float: left;
+  padding-right: 10px;
+}
+.ui-split.horizontal .ui-split-b {
+  float: right;
+  padding-left: 10px;
+}
+.ui-split.horizontal .ui-split-grip {
+  top: -4px;
+  bottom: -4px;
+  height: auto;
+  width: 6px;
+  margin-left: -3px;
+}
+.ui-split.full > * {
+  display: none;
+}
+.ui-split.full > .ui-panel.full {
+  display: block;
+  padding: 0;
+  float: none;
+  width: 100% !important;
+}

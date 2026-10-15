@@ -1,0 +1,450 @@
+﻿(function (W) {
+    "use strict";
+
+    var widgetSelector = ".sidra-widget-grafico";
+    var loadMessage = "Carregando gráfico...";
+
+    var document = W.document;
+    var origin = "https://sidra.ibge.gov.br";
+    //var origin = "http://localhost:51888";
+    //var origin = (wnd.location.origin || wnd.location.protocol + "//" + wnd.location.hostname + (wnd.location.port ? ':' + wnd.location.port : ''));
+
+    var url = origin + '/geragrafico';
+
+    if (W.addEventListener)
+        W.addEventListener('load', onLoad, false)
+    else if (W.attachEvent)
+        W.attachEvent('onload', onLoad);
+
+    function onLoad() {
+        setTimeout(inicializar, 100);
+    }
+
+    function inicializar() {
+        var graficos = document.querySelectorAll(widgetSelector);
+        var len = graficos.length;
+        for (var i = 0; i < len; i++) {
+            var grafico = graficos[i];
+            var selection = $(grafico).data("selection");
+            if (!selection)
+                continue;
+            grafico.removeAttribute("data-selection");
+            loadingMessage(grafico);
+            var xhttp = new XMLHttpRequest();
+            xhttp.open("POST", url, true);
+            xhttp.onreadystatechange = tableCallback(xhttp, grafico, selection);
+            //xhttp.setRequestHeader('Cache-Control', 'no-cache');
+            xhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+            xhttp.send("selection=" + JSON.stringify(selection));
+        }
+    }
+
+    function loadingMessage(element) {
+        empty(element);
+        var message = document.createElement("h4");
+        message.appendChild(document.createTextNode(loadMessage));
+        element.appendChild(message);
+    }
+
+    function errorMessage(element, xhttp) {
+        empty(element);
+        var text = (xhttp.status == 404 ? xhttp.statusText : xhttp.response || xhttp.responseText);
+        var message = document.createElement("h4");
+        message.appendChild(document.createTextNode(text));
+        element.appendChild(message);
+    }
+
+    function fillGraph(element, contents, src) {
+        contents = JSON.parse(contents);
+        addChart(element, contents);
+        element.innerHTML = "<svg></svg>";
+    }
+
+    function empty(element) {
+        while (element.hasChildNodes())
+            element.removeChild(element.lastChild);
+    }
+
+    function tableCallback(xhttp, element, src) {
+        return function () {
+            if (xhttp.readyState != 4)
+                return;
+            if (xhttp.status == 200)
+                fillGraph(element, xhttp.responseText, src);
+            else
+                errorMessage(element, xhttp);
+        }
+    }
+
+    function get_x(d) { return d.x; }
+    function get_y(d) { return d.y; }
+    function get_value(d) { return d.value; }
+    function get_label(d) { return d.label; }
+
+    var sortProps = {
+        field: { value: "value", key: "label" },
+        order: { asc: 1, desc: -1 }
+    };
+
+    function sortData(options, data) {
+        var parts = (options + "").toLowerCase().split(",");
+        var field = sortProps.field[parts[0] || ""];
+        if (!field) return;
+        var order = sortProps.order[parts[1] || ""] || 1;
+        data[0].values.sort(function (a, b) { return (a[field] > b[field]) ? order : -order; });
+    }
+
+    var defaults = {
+        "type": "line",
+        "orderBy": null, // (key|value)(,(asc|desc))?
+        "mergeBy": false, // (key|color)
+        "series": { key: null, color: null, query: "", fields: "" }
+    };
+
+    function mergeSeries(field, data) {
+        if (field !== "key" && field != "color")
+            return data;
+        var result = [];
+        var group, map = {};
+        for (var i = 0, l = data.length; i < l; i++) {
+            var series = data[i];
+            var key = series[field];
+            if (!(group = map[key])) {
+                group = map[key] = {
+                    key: series.key,
+                    color: series.color,
+                    values: []
+                };
+                result.push(group);
+            }
+            for (var j = 0, vg = group.values, vs = series.values, k = vs.length; j < k; j++)
+                vg.push(vs[j]);
+        }
+
+        return result;
+    }
+
+    function addChart(seletor, data) {
+        var selection = $(seletor).data("selection");
+        var chrt;
+
+        if (selection.mergeBy)
+            data = mergeSeries(selection.mergeBy, data);
+
+        if (selection.orderBy)
+            sortData(selection.orderBy, data);
+
+        nv.addGraph(function () {
+            var stype = selection.type;
+
+            if (stype == 'bar-horizontal') {
+                chrt = nv.models.multiBarHorizontalChart();
+            }
+            else if (stype == 'bar-vertical') {
+                chrt = nv.models.multiBarChart();
+                chrt.reduceXTicks(false);
+            }
+            else if (stype == 'line') {
+                chrt = nv.models.lineChart();
+            }
+            else if (stype == 'pie') {
+                chrt = nv.models.pieChart();
+                data = data[0].values;
+            }
+
+            if (stype != 'line') {
+                chrt.x(get_label)
+                    .y(get_value);
+            }
+            else {
+                chrt.x(get_x)
+                    .y(get_y);
+                if (selection["y-format"])
+                    chrt.yAxis.tickFormat(d3.format(selection["y-format"]));
+            }
+
+            if (stype != 'pie') {
+                chrt.showYAxis(true)
+                    .showXAxis(true)
+                    .transitionDuration(350)
+                    .tooltipContent(function (key, y, e, graph) { return htmlTooltip(e, key, y); });
+                if (selection["y-domain"])
+                    chrt.yDomain(selection["y-domain"]);
+            }
+            else {
+                chrt.tooltipContent(function (key, y, e, graph) { return htmlTooltip(y, key); });
+                chrt.legend.updateState(false);
+            }
+
+            if (stype == 'bar-vertical' || stype == 'bar-horizontal')
+                chrt.showControls(false);
+
+            chrt.showLegend(true)
+                .tooltips(true);
+
+            // Ajustes para os gráficos de linha
+            if (stype == 'line')
+                prepareLines(chrt, data);
+
+            if (stype != 'pie')
+                chrt.xAxis.rotateLabels(-30);
+
+            var s = seletor.querySelector("svg");
+
+            d3.select(s)
+                .datum(data)
+                .call(chrt);
+
+            // ajusta as margens automaticamente
+            if (stype != 'pie')
+                ajustarMargens(chrt);
+
+            chrt.update();
+            setResize(seletor, chrt);
+            return chrt;
+        });
+    }
+
+    function prepareLines(chrt, data) {
+        var cont = [];
+        var keys = [];
+
+        for (var i = 0; i < data.length; i++) {
+            var d = data[i];
+            var values = d.values;
+            for (var j = 0; j < values.length; j++) {
+                var v = values[j];
+                values[j] = { x: j, y: v.value };
+                if (!cont[j]) cont[j] = j;
+                if (!keys[j]) keys[j] = v.label;
+            }
+            data[i].values = values;
+        }
+
+        chrt.xAxis
+            .tickValues(cont)
+            .tickFormat(function (d, isHint) { return keys[d]; });
+    }
+
+    var graphList = null;
+    var resizeTag = null;
+
+    function setResize(seletor, chart) {
+        if (!graphList) {
+            graphList = [];
+            $(window).on("resize", function () {
+                if (resizeTag)
+                    clearTimeout(resizeTag);
+                resizeTag = setTimeout(resizeHandler, 200);
+            });
+        }
+        graphList.push({ s: seletor, c: chart });
+    }
+
+    function resizeHandler(e) {
+        resizeTag = null;
+        for (var i = 0; i < graphList.length; i++) {
+            var g = graphList[i];
+            try {
+                if ($(g.s).is(":visible"))
+                    g.c.update();
+                else if (!$.contains(document.body, g.s))
+                    graphList.splice(i--, 1);
+            }
+            catch (e) { }
+        }
+    }
+
+    function htmlTooltip(val, key, group) {
+        var g = (group ? '<p>' + group + '</p>' : "");
+        return '<div style="padding: 5px"><p style="border-bottom: 1px solid lightgray">' + val + '</p><p>' + key + '</p>' + g + '</div>';
+    }
+
+    var CACHE_MARGEM = "__cacheMargem";
+
+    function ajustarMargens(chart) {
+        // define a função internamente, que será chamada por timeout
+        var ajustar = function (chart) {
+            var $container = $(chart.container);
+            // pega o elemento de cache, o criando caso não exista
+            var cache = $container.data(CACHE_MARGEM);
+            var bboxMinMax = function (boxes, atributo) {
+                var obj = { min: boxes[0], max: boxes[0] };
+                for (var i = boxes.length - 1; i > 0; i--) {
+                    var bbox = boxes[i];
+                    if (bbox[atributo] > obj.max[atributo]) obj.max = bbox;
+                    if (bbox[atributo] < obj.min[atributo]) obj.min = bbox;
+                }
+                return obj;
+            }
+            var graph = $container.children();
+            var margem = { left: 0, right: 0, top: 0, bottom: 0 }
+            // meio ruim dar um update aqui, mas é necessário pro nvd3 atualizar algumas transformações
+            chart.margin(margem);
+            if (chart.update)
+                chart.update();
+            if (graph.is(".nv-pieChart")) {
+                // se for gráfico de setor, não faz nada
+            }
+            else {
+                // verifica o cache e se o gráfico é horizontal 
+                var horizontal = graph.is(".nv-multiBarHorizontalChart");
+                // verifica se o cache está definido
+                if (!cache) {
+                    // se o cache de elementos não estiver definido, o criar
+                    cache = {};
+                    // localiza os elementos de referência
+                    var xBox = $container
+                        .find("g.nv-x.nv-axis")
+                        .find("g.tick.major,.nv-axisMaxMin")
+                        .find("text")
+                        .map(function (e, el) { return bboxTransformada($container, el); });
+                    var yBox = $container
+                        .find("g.nv-y.nv-axis")
+                        .find("g.tick.major,.nv-axisMaxMin")
+                        .find("text")
+                        .map(function (e, el) { return bboxTransformada($container, el); });
+                    // se for o gráfico horizontal, inverte as referências dos eixos
+                    if (horizontal) {
+                        var tmp = xBox;
+                        xBox = yBox;
+                        yBox = tmp;
+                    }
+                    // cria o elemento de cache com os dados relevantes
+                    var xMax = bboxMinMax(xBox, "x").max;
+                    cache.xBox = xBox;
+                    cache.xMaxW = xMax.width;
+                    cache.xObj = xMax.obj;
+                    cache.xLimit = cache.xObj.parent().is(".nv-axisMaxMin");
+                    cache.yBox = yBox;
+                    cache.yTop = bboxMinMax(yBox, "x").max.height;
+                }
+                else if (!horizontal) {
+                    // se o cache de elementos estiver definido, só atualiza as bounding boxes
+                    // (não executa para o horizontal porque os labels não podem girar e, portanto, suas dimensões nunca mudam)
+                    // eixo x
+                    cache.xMax = bboxTransformada($container, cache.xObj[0]);
+                    for (var i = cache.xBox.length - 1; i >= 0; i--)
+                        cache.xBox[i] = bboxTransformada($container, cache.xBox[i].obj[0]);
+                    // eixo y
+                    for (var i = cache.yBox.length - 1; i >= 0; i--)
+                        cache.yBox[i] = bboxTransformada($container, cache.yBox[i].obj[0]);
+                }
+                // pega os limites definidos pelos textos de eixo
+                var yMax = max(cache.yBox, "width").width;
+                var xMax = max(cache.xBox, "height").height;
+                // verifica se os limites dos maxMin em X supera os limites anteriores
+                var xMinMax = $.grep(cache.xBox, function (e) { return e.obj.parent().is("g.nv-axisMaxMin") });
+                var xMin = min(xMinMax, "x");
+                // se for maior, os limites foram violados. corrigir
+                if (xMin && -xMin.x > yMax)
+                    yMax = -xMin.x;
+                $.extend(cache, {
+                    left: yMax,
+                    top: cache.yTop / 2,
+                    bottom: xMax
+                });
+                // atualiza a margem a partir dos elementos de controle
+                var margem = {
+                    left: 10 + cache.left,
+                    right: 10 + (!cache.xLimit ? 0 : (cache.xObj.css("text-anchor") === "right" ? 0 : cache.xMaxW / 2)),
+                    top: 10 + cache.top,
+                    bottom: 10 + cache.bottom
+                }
+            }
+            // salva o elemento de cache atualizado e atualiza a margem
+            $container.data(CACHE_MARGEM, cache);
+            chart.margin(margem);
+            chart.update();
+        }
+
+        ajustar(chart);
+    }
+
+    // extrai um elemento de uma lista comparando-os par a par com a função especificada, a partir do valor de uma dada propriedade
+    // extr(array, "prop", fn)
+    // extr(array, getter, fn)
+    function extr(array, prop, fn) {
+        if (!array || !array.length)
+            return null;
+        var isProp = (typeof prop === "string");
+        var val, idx = 0, res = (isProp ? array[0][prop] : prop(array[0]));
+        for (var i = 1, l = array.length; i < l; i++) {
+            val = (isProp ? array[i][prop] : prop(array[i]));
+            if (fn(val, res)) {
+                res = val;
+                idx = i;
+            }
+        }
+        return array[idx];
+    }
+
+    function max(array, key) {
+        return extr(array, key, function (a, b) { return (a > b); });
+    }
+
+    function min(array, key) {
+        return extr(array, key, function (a, b) { return (a < b); });
+    }
+
+    // função que calcula a bounding box transformada do elemento
+    function bboxTransformada($container, obj) {
+        try {
+            if (!obj || !obj.getBBox || !obj.getCTM)
+                throw "";
+            // pontos para top-left e bottom-right
+            var bbox = obj.getBBox();
+            // se a largura e altura forem zero, pode ser um erro do browser no cálculo de elementos aninhados
+            // (meio gambiarrinha, mas ta valendo. qualquer coisa melhor depois)
+            if (bbox.width == 0 && bbox.height == 0) {
+                // calcula a partir do maximo e minimo de todas as bbox filhas
+                var $filhos = $(obj).children();
+                if ($filhos.length == 0) {
+                    bbox = { "x": bbox.x || 0, "y": bbox.y || 0, "width": 0, "height": 0 };
+                }
+                else {
+                    // captura, recursivamente, todas as coordenadas de x e y dos elementos filho
+                    var x = [], y = [];
+                    for (var i = $filhos.length - 1; i >= 0; i--) {
+                        var fBBox = bboxTransformada($filhos[i]);
+                        x.push(fBBox.x, fBBox.x + fBBox.width);
+                        y.push(fBBox.y, fBBox.y + fBBox.height);
+                    }
+                    // coordenadas iniciais
+                    bbox.x = Math.min.apply(this, x);
+                    bbox.y = Math.min.apply(this, y);
+                    // dimensões
+                    bbox.width = Math.max.apply(this, x) - bbox.x;
+                    bbox.height = Math.max.apply(this, y) - bbox.y;
+                }
+            }
+            // pega a matriz de transformação acumulada do objeto
+            var ctm = obj.getCTM();
+            // realiza a transformação dos elementos a partir dos 4 pontos de limite
+            var x = [], y = [];
+            for (var i = 0; i < 4; i++) {
+                // cria o ponto
+                var p1 = $container[0].createSVGPoint();
+                p1.x = bbox.x + (i % 2 ? 0 : bbox.width);
+                p1.y = bbox.y + (i < 2 ? 0 : bbox.height);
+                // transforma o ponto e insere as coordenadas nas listas
+                var p2 = p1.matrixTransform(ctm);
+                x.push(p2.x);
+                y.push(p2.y);
+            }
+            // captura os limites das listas e retorna o objeto
+            bbox = {
+                obj: $(obj),
+                x: Math.min.apply(this, x),
+                y: Math.min.apply(this, y)
+            }
+            bbox.width = Math.max.apply(this, x) - bbox.x;
+            bbox.height = Math.max.apply(this, y) - bbox.y;
+            return bbox;
+        }
+        catch (e) {
+            return { "obj": $(obj), "x": 0, "y": 0, "width": 0, "height": 0 };
+        }
+    }
+
+})(this);

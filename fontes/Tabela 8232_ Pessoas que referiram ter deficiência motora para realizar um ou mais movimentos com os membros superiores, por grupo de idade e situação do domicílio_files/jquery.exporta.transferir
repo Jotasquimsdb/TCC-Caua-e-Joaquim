@@ -1,0 +1,323 @@
+﻿// exporta um ou mais gráficos em SVG para download.
+// parâmetros: $(seletor).exportaSVG(formato, zip)
+// formato: "svg", "png" (se undefined, considera-se SVG; png utiliza canvas, então este deve estar disponível)
+// zip: true, false, undefined. (para salvar mais de 1 gráfico deve ser usado zip=true, senão apenas o primeiro será salvo)
+
+(function ($) {
+
+    // classes que não devem ser exportadas no gráfico
+    var DESCARTAR = ".nv-scatterWrap,.nv-controlsWrap,.nv-interactive";
+    //
+    var elementosVisuais = "line,path,text,rect";
+    // padrões para exportar, referenciados pelo tipo de elemento
+    var estilos = {
+        "line": ["visibility", "opacity", "stroke", "stroke-width", "shape-rendering"],
+        "path": ["visibility", "opacity", "fill", "fill-opacity", "stroke", "stroke-width"],
+        "text": ["visibility", "opacity", "text-anchor", "dy", "font-size", "font-family", "font-weight"],
+        "rect": ["visibility", "opacity"]
+    };
+    // valores padrão, que devem ser ignorados na hora de exportar
+    var padroes = {
+        "visibility": "visible",
+        "opacity": 1,
+        "fill-opacity": 1,
+        "stroke": "",
+        "stroke-width": 1,
+        "shape-rendering": "auto",
+        "font-weight": "normal",
+        "text-anchor": "inherit"
+    };
+
+    // define uma função crossbrowser para pegar os estilos de um objeto
+    var pegaEstilo = (window.getComputedStyle
+        ? function (el) { return window.getComputedStyle(el); }
+        : function (el) { return el.currentStyle; }
+    );
+
+    // regexp pra fazer escape dos caracteres especiais
+    var escapeRegexp = /[&<>]/gm;
+
+    var escapeChars = {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;"
+    };
+
+    function escape(t) {
+        return (escapeChars[t] || t);
+    }
+
+    // função que serializa o elemento SVG (porque o innerHTML não funciona no IE para esse elemento)
+    // adaptada de https://raw.githubusercontent.com/dnozay/innersvg-polyfill/master/innersvg.js
+    // não usei o procedimento completo porque alterar o protótipo do SVG, como informado na página do polyfill, não funciona abaixo do IE9
+    var serializeXML = function (node, output) {
+        var nodeType = node.nodeType;
+        if (nodeType == 3) {
+            // TEXT nodes.
+            // Replace special XML characters with their entities.
+            var text = node.textContent.replace(escapeRegexp, escape);
+            output.push(text);
+        } else if (nodeType == 1) {
+            // ELEMENT nodes.
+            // Serialize Element nodes.
+            output.push('<', node.tagName);
+            if (node.hasAttributes()) {
+                var attrMap = node.attributes;
+                for (var i = 0, len = attrMap.length; i < len; ++i) {
+                    var attrNode = attrMap.item(i);
+                    output.push(' ', attrNode.name, '=\'', attrNode.value, '\'');
+                }
+            }
+            if (node.hasChildNodes()) {
+                output.push('>');
+                var childNodes = node.childNodes;
+                for (var i = 0, len = childNodes.length; i < len; ++i) {
+                    serializeXML(childNodes.item(i), output);
+                }
+                output.push('</', node.tagName, '>');
+            } else {
+                output.push('/>');
+            }
+        } else if (nodeType == 8) {
+            // TODO(codedread): Replace special characters with XML entities?
+            output.push('<!--', node.nodeValue, '-->');
+        } else {
+            // TODO: Handle CDATA nodes.
+            // TODO: Handle ENTITY nodes.
+            // TODO: Handle DOCUMENT nodes.
+            throw 'Error serializing XML. Unhandled node of type: ' + nodeType;
+        }
+    }
+
+    function processarElemento(i, el) {
+        // pega os estilos relevantes do elemento
+        var $el = $(el);
+        var estilosElemento = $el.css(estilos[el.tagName.toLowerCase()]);
+        // remove os valores que se encontram no padrão
+        for (var key in estilosElemento)
+            if (!estilosElemento[key] || estilosElemento[key] == padroes[key])
+                delete estilosElemento[key];
+        // força estes estilos inline (NÃO TA APAGANDO DIREITO. DEPOIS MEXER)
+        $el.attr("style", "").css(estilosElemento);
+    }
+
+    // clona a imagem original e gera um novo SVG a partir dos seguintes passos:
+    // - preenche os estilos inline
+    // - remove classes
+    function serializarSVG(elemento) {
+        // inicia clonando o grafico, para não interferir no que está sendo visualizado  
+        var saida = elemento.clone().appendTo("body");
+        try {
+            // remove elementos que não são úteis no dado exportado
+            saida.find(DESCARTAR).remove();
+            // insere como inline alguns estilos relevantes de elementos visuais (pois podem estar definidos em classes)
+            saida.find(elementosVisuais).each(processarElemento);
+            // remove as classes de todos os elementos
+            saida.find("*").removeAttr("class");
+            // seta os atributos do SVG
+            saida.attr({
+                // tamanho da imagem (usa o elemento original, pois está no DOM e pode ter o tamanho real calculado)
+                "width": elemento.outerWidth(),
+                "height": elemento.outerHeight(),
+                // insere a versao do svg e os namespaces
+                "version": "1.1",
+                'xmlns': 'http://www.w3.org/2000/svg',
+                'xmlns:xlink': 'http://www.w3.org/1999/xlink'
+            });
+            // insere o descritor do xml (não usa o innerHTML porque não funciona com SVG no IE) e converte para string 
+            var xml = ['<?xml version="1.0" standalone="yes"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'];
+
+            serializeXML(saida[0], xml);
+            //
+            return xml.join("");
+        }
+        catch (e) {
+            throw e;
+        }
+        finally {
+            saida.remove();
+        }
+    }
+
+    function gerarSVG(elemento, callback) {
+        var svg = serializarSVG(elemento);
+
+        callback(svg);
+    }
+
+    // a conversão para base64 não funciona se houverem caracteres unicode. usa essa rotina pra corrigir a string
+    // referencia: https://stackoverflow.com/a/52647441/8345668
+    function corrigirStringUnicode(text) {
+        return encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, function (match, p1) {
+            return String.fromCharCode('0x' + p1);
+        });
+    }
+
+    function gerarPNG(elemento, callback) {
+        // se for PNG, gerar uma imagem em memória para desenhar o SVG
+        var svg = serializarSVG(elemento);
+
+        // escapa os caracteres unicode, porque se tiver algum acento na string a rotina de base64 zoa
+        //svg = encodeURIComponent(svg);
+        svg = corrigirStringUnicode(svg);
+
+        var largura = Math.ceil(elemento.width());
+        var altura = Math.ceil(elemento.height());
+
+        // prepara o canvas no tamanho da imagem, e pega seu contexto
+        var canvas = document.createElement("canvas");
+        canvas.width = largura;
+        canvas.height = altura;
+
+        var ctx = canvas.getContext("2d");
+
+        // cria a imagem e define o callback
+        var imagem = new Image(largura, altura);
+
+        imagem.onload = function () {
+            try {
+                // desenha a imagem no contexto do canvas
+                ctx.drawImage(imagem, 0, 0);
+
+                // pega a string de conteúdo no formato PNG, e limpa o canvas (como estamos fazendo tudo em paralelo, melhor não esperar pelo GC)
+                var imgdata = canvas.toDataURL('image/png');
+                canvas.height = 0;
+
+                // remove o início do texto (a string "data:image;png;base64,") e o retorna
+                var indiceConteudo = 1 + imgdata.indexOf(',');
+                imgdata = imgdata.slice(indiceConteudo);
+
+                callback(imgdata);
+            }
+            catch (e) {
+                $.sidra.debugErro(e);
+                callback(null);
+            }
+        };
+
+        // desenha o svg na imagem
+        imagem.src = "data:image/svg+xml;charset=utf-8;base64," + base64.encode(svg);
+    }
+
+    // retorna o canvas contendo a imagem bitmap de um gráfico SVG
+    function gerarImagem(elemento, formato, callback) {
+        try {
+            if (formato == "svg")
+                gerarSVG(elemento, callback);
+            else
+                gerarPNG(elemento, callback);
+        }
+        catch (e) {
+            $.sidra.debugErro(e);
+            callback(null);
+        }
+    }
+
+    function requisitarImagem(indice, grafico, formato, callback) {
+        gerarImagem(grafico, formato, function (data) {
+            if (data)
+                callback(indice, data);
+            else
+                callback(-1);
+        });
+    }
+
+    // gera um zip contendo todos os gráficos dentro do zip, de acordo com o formato desejado
+    function salvarZip(graficos, formato, callback) {
+        var contador = graficos.length;
+        var usaBase64 = (formato == "png");
+
+        var falha = false;
+        var zip = new JSZip();
+
+        // para cada grafico, requisitar a conversão da imagem
+        for (var i = graficos.length - 1; i >= 0; i--)
+            requisitarImagem(i, $(graficos[i]), formato, zipCallback);
+
+        function zipCallback(indice, data) {
+            if (indice < 0) {
+                // se o índice for negativo, houve falha
+                falha = true;
+            }
+            else if (!falha) {
+                // se o resultado foi válido e não houveram falhas até o momento, tenta inserir a imagem no zip
+                try {
+                    var filename = "grafico_" + (indice + 1) + "." + formato;
+                    zip.file(filename, data, { base64: usaBase64 });
+                }
+                catch (e) {
+                    $.sidra.debugErro(e);
+                    falha = true;
+                }
+            }
+
+            // se ainda existem imagens aguardando na fila, sair sem fazer mais nada
+            if (--contador > 0)
+                return;
+
+            // senão, todas as imagens já foram processadas.
+            // se houve alguma falha, retornar false no callback
+            if (falha) {
+                callback(false);
+                return;
+            }
+
+            try {
+                // tudo certo ate aqui. 
+                resultado = zip.generate({
+                    compression: "DEFLATE",
+                    compressionOptions: { level: 1 },
+                    mimeType: "application/application/zip",
+                    type: "base64"
+                });
+
+                $.sidra.salvar("graficos.zip", resultado, "application/application/zip", true);
+            }
+            catch (e) {
+                $.sidra.debugErro(e);
+                falha = true;
+            }
+
+            callback(true);
+        };
+    }
+
+    // salva apenas um gráfico, no formato desejado
+    function salvarGrafico(elemento, formato, callback) {
+        gerarImagem(elemento, formato, function (data) {
+            var sucesso = !!data;
+
+            if (sucesso) {
+                if (formato == "svg")
+                    $.sidra.salvar("grafico.svg", data, "image/svg+xml", false);
+                else
+                    $.sidra.salvar("grafico.png", data, "image/png", true); // PNG retorna já em base64
+            }
+
+            callback(sucesso);
+        });
+    }
+
+    // define o plugin jQuery
+    $.fn.exportaSVG = function (formato, zip, callback) {
+        var elemento = $(this);
+        // captura todos os gráficos svg dentro da seleção
+        if (!elemento.is("svg"))
+            elemento = elemento.find("svg");
+        // se não houver nenhum svg, retorna
+        if (elemento.length === 0)
+            return;
+        // verifica os parâmetros
+        formato = (formato || "svg"); // se não especificar o formato, considera SVG
+        // executa o plugin
+        if (elemento.length === 1 || !zip) {
+            // se houver apenas 1 gráfico ou se não for para zipar, salva apenas o primeiro gráfico
+            salvarGrafico(elemento, formato, callback);
+        }
+        else {
+            // senão, salvar em zip
+            salvarZip(elemento, formato, callback);
+        }
+    }
+
+})(jQuery);

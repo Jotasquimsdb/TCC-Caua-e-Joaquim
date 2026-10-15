@@ -1,0 +1,703 @@
+﻿// Objeto que encapsula as operações sobre listas e árvores de elementos
+"use strict";
+
+var CheckList = null;
+var RadioList = null;
+var ListGroup = null;
+var ListData = null;
+var buildCheckList = null;
+var extendCheckList = null;
+
+(function ($undefined) {
+
+    var FILTER_ALL = 0;
+    var FILTER_GROUPS = 1;
+    var FILTER_DATA = 2;
+    //
+    var filters = {
+        "all": FILTER_ALL,
+        "groups": FILTER_GROUPS,
+        "data": FILTER_DATA
+    };
+
+    var checkModes = "|many|single|";
+    var typeStringOrNumber = "string,number";
+
+    var uniqueId = 1;
+    var nodeSuffix = "5e-1"; // makes ID string a float number without dots, allowing coexistance with integer user data-IDs and usage as HTML ids and selectors
+    var emptyObj = {};
+
+    function isArray(arg) {
+        return emptyObj.toString.call(arg) === "[object Array]";
+    }
+
+    function isFunction(arg) {
+        return (typeof arg === "function");
+    }
+
+    function extend(dst, args) {
+        for (var i = 1; i < arguments.length; i++) {
+            var src = arguments[i];
+            for (var key in src)
+                dst[key] = src[key];
+        }
+        return dst;
+    }
+
+    function merge(dst, src) {
+        for (var key in src)
+            dst[key] = src[key];
+    }
+
+    function valuesToArray(map) {
+        var result = [];
+        for (var key in map)
+            result.push(map[key]);
+        return result;
+    }
+
+    function map(key, list) {
+        var result = [];
+        if (isArray(list)) {
+            for (var i = 0; i < list.length; i++)
+                result.push(list[i][key]);
+        }
+        else {
+            for (var f in map)
+                result.push(list[f][key]);
+        }
+        return result;
+    }
+
+    // get all keys in an object (could have used "Object.keys", but older browsers don't support it)
+    function keysToArray(map) {
+        var result = [];
+        for (var key in map)
+            result.push(key);
+        return result;
+    }
+
+    //
+    function idArrayToMap(ids) {
+        var map = {};
+        for (var i = ids.length; i--;)
+            map[ids[i]] = i;
+        return map;
+    }
+
+    ListGroup = function (contents, parent) {
+        if (parent) {
+            this._initialize.apply(this, arguments);
+            this._list = parent._list;
+        }
+    }
+
+    extend(ListGroup.prototype, {
+        _initialize: function (contents, parent) {
+            this.contents = contents;
+            this.id = (uniqueId++) + nodeSuffix;
+            this.checked = 0;
+            this.count = 0;     // enabled data count
+            this._count = 0;    // full data count, including disabled
+            this.parent = parent;
+            //
+            this._groups = {};
+            this._groupCount = 0;
+            //
+            this._data = {};
+            this._dataCount = 0;
+        },
+        _log: function (message) {
+            console.log("[CheckList] " + message);
+        },
+        _throw: function (message) {
+            throw "[CheckList] " + message;
+        },
+        getPath: function () {
+            var path = [];
+            for (var p = this; p; p = p.parent)
+                path.push(p);
+            return path;
+        },
+        // addData(id, content)
+        // addData(id)
+        // addData([id])
+        addData: function (id, contents) {
+            var thisList = this._list;
+            var thisData = this._data;
+            //
+            if (contents) {
+                var data = thisData[id];
+                if (!data) {
+                    data = thisList.addData(id, contents);
+                    thisData[id] = data._addParent(this);
+                    this._dataCount++;
+                }
+                return data;
+            }
+            else {
+                var ids = (isArray(id) ? id : [id]);
+                var data = thisList._getData(ids);
+                for (var i = ids.length; i--;) {
+                    var dataId = ids[i];
+                    if (!thisData[dataId]) {
+                        thisData[dataId] = data[i]._addParent(this);
+                        this._dataCount++;
+                    }
+                }
+                return data;
+            }
+        },
+        addGroup: function (contents) {
+            if (!contents)
+                throw "Contents of group expected";
+            //
+            this._groupCount++;
+            var group = new ListGroup(contents, this);
+            return (this._groups[group.id] = group);
+        },
+        empty: function () {
+            return (this.count == 0 && !this._groupCount);
+        },
+        hasData: function () {
+            return (this.count > 0);
+        },
+        check: function (check) {
+            this._list._checkGroup(this, check);
+        },
+        uncheck: function () {
+            this.check(false);
+        },
+        enable: function (enable) {
+            this.disabled = (enable == false);
+        },
+        // get(id) - search by node id or user data id
+        // get(id, mode) - mode: ("all", "data", "groups"). default is "all"
+        get: function (id, mode) {
+            return this._findNode(id, mode || "all", false);
+        },
+        // findNode(id) - search by node id or user data id
+        // findNode(id, mode) - mode: ("all", "data", "groups"). default is "all"
+        findNode: function (id, mode) {
+            return this._findNode(id, mode || "all", true);
+        },
+        _findNode: function (id, mode, recursive) {
+            if (mode !== "data" && this.id == id)
+                return this;
+            // check for data
+            if (mode !== "groups" && this._dataCount) {
+                // search data by user id
+                var data = this._data;
+                if (data[id])
+                    return data[id];
+                // search data by node id
+                for (var key in data)
+                    if (data[key].id == id)
+                        return data[key];
+            }
+            // search subgroups
+            if (mode !== "data") {
+                // check for first-level groups here, for performance
+                var groups = this._groups;
+                if (groups[id])
+                    return groups[id];
+                // if not found and search is recursive, recursively search inside each subgroup
+                if (recursive) {
+                    var inGroup = null;
+                    for (var key in groups)
+                        if (inGroup = groups[key].findNode(id))
+                            return inGroup;
+                }
+            }
+            // if not found, return null
+            return null;
+
+        },
+        // get all data inside this subgroup
+        // data()
+        // data(id)
+        // data([id])
+        // data(filter:function [, param])
+        data: function (arg1, arg2) {
+            // use "_select" because, if it doesn't have it's own data, the data is the union of all subgroups data inside it's hierarchy
+            return valuesToArray(this._select(FILTER_DATA, false, arg1, arg2));
+        },
+        // get first level subgroups of this group
+        // groups()
+        // groups(id)
+        // groups([id])
+        // groups(filter:function [, param])
+        groups: function (arg1, arg2) {
+            return valuesToArray(this._select(FILTER_GROUPS, false, arg1, arg2));
+        },
+        // select(recursive)
+        // select(recursive, id)
+        // select(recursive, [id])
+        // select(recursive, filter:function [, param])
+        select: function (recursive, arg1, arg2) {
+            return new ListSelection(!arguments.length ? {} : this._select(FILTER_ALL, recursive, arg1, arg2));
+        },
+        // select, from a group, all nodes that matches the condition, and return a resulting array
+        // _select()
+        // _select(id)
+        // _select([id])
+        // _select(function [, param])
+        _select: function (filter, recursive, arg1, arg2) {
+            var result = {};
+            var callback;
+            if (arg1 == null) {
+                // no parameters. select all items
+                callback = function (id, item) {
+                    result[id] = item;
+                };
+            }
+            else if (isFunction(arg1)) {
+                // select by function callback
+                callback = function (id, item) {
+                    if (!result[id] && arg1.call(this, id, item, arg2) != false)
+                        result[id] = item;
+                };
+            }
+            else {
+                // select by id
+                var ids = (isArray(arg1) ? arg1 : [arg1]);
+                ids = idArrayToMap(ids);
+                callback = function (id, item) {
+                    if (ids[id] >= 0)
+                        result[id] = item;
+                }
+            }
+            //
+            this._forEach(callback, filter, recursive);
+            return valuesToArray(result);
+        },
+        forEach: function (callback, types, recursive) {
+            types = (filters[types] || FILTER_ALL);
+            this._forEach(callback, types, recursive);
+            return this;
+        },
+        _forEach: function (callback, types, recursive) {
+            // TA MEIO MERDA. DEPOIS TENTAR MELHORAR ************************
+            // use a counter for faster evaluation of data iteration
+            var counter = (types == FILTER_DATA && this._count) || -1;
+            //
+            var visited = {};
+            var stack = [this];
+            while (stack.length) {
+                var node = stack.pop();
+                //
+                var ownData = (node._dataCount > 0);
+                if (ownData && types !== FILTER_GROUPS)
+                    for (var id in node._data)
+                        if (!visited[id]) {
+                            var data = node._data[id];
+                            visited[id] = true;
+                            counter--;
+                            callback(id, data);
+                        }
+                // se é uma consulta de dados e todos já foram percorridos, não seguir para os subgrupos
+                if (counter !== 0)
+                    for (var id in node._groups)
+                        if (!visited[id]) {
+                            var group = node._groups[id];
+                            visited[id] = true;
+                            if (types === FILTER_DATA)
+                                stack.push(group);
+                            else {
+                                callback(id, group);
+                                if (recursive)
+                                    stack.push(group);
+                            }
+                        }
+            }
+        },
+        getCheckedIds: function () {
+            var result = this._getChecked({});
+            return keysToArray(result);
+        },
+        getCheckedContents: function () {
+            var result = this._getChecked({});
+            return map("contents", valuesToArray(result));
+        },
+        //
+        getChecked: function (includeDisabled) {
+            var result = this._getChecked({}, includeDisabled == true);
+            return valuesToArray(result);
+        },
+        _getChecked: function (map, includeDisabled) {
+            if (!this._dataCount) {
+                var groups = this._groups;
+                for (var id in groups)
+                    groups[id]._getChecked(map, includeDisabled);
+            }
+            else {
+                var data = this._data;
+                for (var id in data) {
+                    var d = data[id];
+                    if (d.checked && (includeDisabled || !d.disabled))
+                        map[d.id] = d; // map by internal id, not user id!
+                }
+            }
+            return map;
+        },
+        _resetGroups: function (state) {
+            this.checked = state * this.count;
+            for (var id in this._groups)
+                this._groups[id]._resetGroups(state);
+        }
+    });
+
+    //
+
+    CheckList = function (contents, mode) {
+        // process check mode parameter
+        if (checkModes.indexOf(mode) >= 0)
+            this.mode = mode;
+        else {
+            this._log('[CheckList] List mode not specified. Setting to default value "many".');
+            this.mode = "many";
+        }
+        // initialize class
+        this._initialize(contents, null);
+        this._list = this;
+    }
+
+    extend(CheckList.prototype = new ListGroup(null), {
+        // addData(id, content)
+        addData: function (id, contents) {
+            if (!contents || typeStringOrNumber.indexOf(typeof id) < 0)
+                throw 'Invalid parameter types for data creation. Expected (number|string) for "id" and not empty for contents';
+            //
+            var thisData = this._data;
+            var data = thisData[id];
+            if (data)
+                throw 'There is already data with ID "' + id + '"';
+            //
+            this._dataCount++;
+            return (thisData[id] = new ListData(contents, this));
+        },
+        // checkById(id)
+        // checkById([id])
+        checkById: function (id, check) {
+            if (id === null)
+                return this;
+            //
+            var ids = (isArray(id) ? id : [id]);
+            for (var i = ids.length; i--;)
+                ids[i] = this._data[ids[i]];
+            //
+            return this._checkData(ids, check);
+        },
+        _getData: function (ids) {
+            var result = [];
+            var data = this._data;
+            var len = ids.length;
+            for (var i = 0; i < len; i++) {
+                var node = data[ids[i]];
+                if (!node)
+                    this._throw('Can\'t find data with ID = "' + ids[i] + '".');
+                result.push(node);
+            }
+            return result;
+        },
+        _checkData: function (list, check) {
+            if (this.mode === "single") {
+                if (this.checked) {
+                    this.checked.checked = 0;
+                    this.checked = null;
+                }
+                if (list.length > 0) {
+                    var data = list[0];
+                    this.checked = data;
+                    data.checked = 1;
+                }
+            }
+            else {
+                var checked = ~~(check != false); // undefined should be true
+                var step = 2 * (checked - 0.5);
+                //
+                for (var i = list.length; i--;) {
+                    var data = list[i];
+                    if (data && data.checked != checked)
+                        data._fastCheck(step);
+                }
+            }
+            return this;
+        },
+        getFirst: function () {
+            return this._getFirstData();
+        },
+        checkFirst: function () {
+            this.reset();
+            var first = this.getFirst();
+            (first && first.check(true));
+            return this;
+        },
+        check: function (check) {
+            check = ~~(check != false);
+            for (var id in this._data)
+                this._data[id].checked = check;
+            this._resetGroups(check);
+            return this;
+        },
+        uncheck: function () {
+            return this.check(false);
+        },
+        getChecked: function (includeDisabled) {
+            if (this.mode === "single")
+                return this.checked;
+            else {
+                var result = this._getChecked({}, includeDisabled == true);
+                return valuesToArray(result);
+            }
+        },
+        // 
+        checkGroups: function (ids, check) {
+            // process parameters and return if list is empty
+            ids = (isArray(ids) ? ids : [ids]);
+            if (!ids.length)
+                return this;
+            // get all groups that matches ids
+            var obj = {
+                map: idArrayToMap(ids),
+                count: ids.length // doesn't check for duplicated entries
+            };
+            // get only the groups in map
+            var groups = this._getGroupsById(obj, this).map;
+            // check groups (could be optitimized resolving intersections, but for now it's ok)
+            if (groups)
+                for (var key in groups)
+                    this._checkGroup(groups[key], check);
+        },
+        _checkGroup: function (group, check) {
+            if (this.mode === "single") {
+                if (this.checked) {
+                    this.checked.checked = 0;
+                    this.checked = null;
+                }
+                this.checked = group;
+                group.checked = 1;
+                //this._log('Can\'t check groups in "single" check mode.');
+            }
+            else {
+                // if it's many-check mode, check all group data
+                var data = group.data();
+                this._checkData(data, check);
+            }
+        },
+        //
+        _getGroupsById: function (obj, group) {
+            var match = obj.map[group.id];
+            if (match >= 0) {
+                // if match is a number, it's the first time we reach this group. set reference and decrement counter
+                obj.map[group.id] = group;
+                // if it was the last group in list, return
+                if (--obj.count === 0)
+                    return obj;
+            }
+            else if (match) {
+                // else, if object was already iterated. return
+                return obj;
+            }
+            // iterate to subgroups, if any
+            var subgroups = group._groups;
+            if (subgroups) {
+                for (var key in subgroups)
+                    obj = this._getGroupsById(obj, subgroups[key]);
+            }
+            // return result
+            return obj;
+        },
+        //
+        reset: function () {
+            this.checked = 0;
+            for (var id in this._data)
+                this._data[id].checked = 0;
+            this._resetGroups(0);
+            return this;
+        },
+        _getFirstGroup: function () {
+            var min = Number.MAX_VALUE;
+            for (var id in this._groups)
+                if (Number(id) < min)
+                    min = id;
+            return (this._groups[min] || null);
+        },
+        _getFirstData: function () {
+            var min = Number.MAX_VALUE;
+            var minData = null;
+            for (var id in this._data) {
+                var data = this._data[id];
+                var n = Number(data.id); // get internal id, not user id!
+                if (!data.disabled && n < min) {
+                    min = n;
+                    minData = data;
+                }
+            }
+            return minData;
+        }
+    });
+
+    //
+
+    ListData = function (contents, list) {
+        this._initialize(contents, list);
+    }
+
+    extend(ListData.prototype, {
+        _initialize: function (contents, list) {
+            this.id = (uniqueId++) + nodeSuffix;
+            this.contents = contents;
+            this.checked = 0;
+            this.parents = [list];
+            this._parentsMap = "|" + list.id + "|";
+            list.count++;
+            list._count++;
+        },
+        // check element and update it's parents counter
+        check: function (check) {
+            this.parents[0]._checkData([this], check);
+            return this;
+        },
+        // private method for fast checking, used for multiple data checks by the caller
+        _fastCheck: function (step) {
+            // always check, even if disabled (if not allowed, the user should prevent it in UI)
+            this.checked += step;
+            //  if data is not disabled, update parents counters
+            if (!this.disabled) {
+                var parents = this.parents;
+                for (var i = parents.length; i--;)
+                    parents[i].checked += step;
+            }
+        },
+        enable: function (enable) {
+            var disable = (enable == false);
+            if (!this.disabled == disable) {
+                this.disabled = disable;
+                var step = (disable ? -1 : 1);
+                var check = step * (~~this.checked);
+                var parents = this.parents;
+                for (var i = parents.length; i--;) {
+                    var parent = parents[i];
+                    parent.count += step;
+                    if (check)
+                        parent.checked += check;
+                }
+            }
+        },
+        //
+        _addParent: function (parent) {
+            var checked = this.checked;
+            var parents = this.parents;
+            var map = this._parentsMap;
+            var enabled = !this.disabled;
+            //
+            for (var p = parent; p && map.indexOf("|" + p.id) < 0; p = p.parent) {
+                map = map + p.id + "|";
+                parents.push(p);
+                if (enabled) {
+                    p.count++;
+                    p._count++;
+                    (checked && p.checked++);
+                }
+            }
+            //
+            this._parentsMap = map;
+            return this;
+        }
+    });
+
+
+    function ListSelection(map) {
+        var length = 0;
+        for (var id in map)
+            this[length++] = map[id];
+        //
+        this._map = map;
+        this.length = length;
+    }
+
+    extend(ListSelection.prototype, {
+        check: function (check) {
+            for (var id in this._map)
+                this._map[id].check(check);
+            return this;
+        },
+        enable: function (enable) {
+            for (var id in this._map)
+                this._map[id].enable(enable);
+            return this;
+        },
+        forEach: function (callback) {
+            for (var id in this._map) {
+                var item = this._map[id];
+                callback.call(item, id, item);
+            }
+            return this;
+        },
+        merge: function (selection) {
+            if (!(selection instanceof ListSelection))
+                throw "[ListSelection] Parameter is not a list selection.";
+            for (var id in selection._map)
+                if (!this._map[id])
+                    this[this.length++] = this._map[id] = selection._map[id];
+            return this;
+        }
+    });
+
+
+
+
+
+    // buildCheckList(root, options)
+    buildCheckList = function (root, options) {
+        // create elemento and save parameters
+        var list = new CheckList(root, options.mode || "many");
+        list._params = options;
+        // call recursive procedure and return result
+        return buildIteration(list, list.contents, options);
+    };
+
+    extendCheckList = function (node, clear) {
+        var params = node._list._params;
+        params.clear = (clear == true);
+        buildIteration(node, node.contents, params);
+    }
+
+    function buildIteration(node, contents, params) {
+        if (params.data) {
+            var data = contents[params.data];
+            if (data && data.length) {
+                if (isIdArray(data))
+                    node.addData(data);
+                else {
+                    for (var i = 0; i < data.length; i++) {
+                        var v = data[i];
+                        node.addData(v[params.id], v);
+                    }
+                }
+                if (params.clear)
+                    contents[params.data] = null;
+            }
+        }
+        //
+        if (params.groups) {
+            var groups = contents[params.groups];
+            if (groups && groups.length) {
+                for (var i = 0; i < groups.length; i++) {
+                    var g = groups[i];
+                    buildIteration(node.addGroup(g), g, params);
+                }
+                if (params.clear)
+                    contents[params.groups] = null;
+            }
+        }
+        //
+        return node;
+    }
+
+    function isIdArray(list) {
+        return !isNaN(list[0]);
+    }
+
+})();

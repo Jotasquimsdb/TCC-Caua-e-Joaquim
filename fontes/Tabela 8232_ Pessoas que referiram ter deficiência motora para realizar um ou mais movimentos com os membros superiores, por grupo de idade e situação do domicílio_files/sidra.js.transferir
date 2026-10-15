@@ -1,0 +1,340 @@
+﻿
+function checkJquery() {
+    if (!window.jQuery) {
+        var script = document.createElement('script');
+        script.src = "/Scripts/jquery-1.11.1.min.js";
+        document.body.appendChild(script);
+    }
+}
+
+function print(selector) {
+    var content = $(selector).html();
+
+    var frameWindow = document.querySelector('.print-frame').contentWindow;
+    var frameDocument = frameWindow.document;
+
+    var html = "".concat(
+        '<html>',
+            '<head>',
+                '<link rel="stylesheet" type="text/css" href="/Content/bootstrap.css">',
+                '<link rel="stylesheet" type="text/css" href="/Content/jquery.tabela.css">',
+                '<link rel="stylesheet" type="text/css" href="/Content/print.css">',
+            '</head>',
+            '<body>',
+                 content,
+            '</body>',
+        '</html>'
+    );
+
+    frameDocument.open('text/html', 'replace');
+    frameDocument.write(html);
+    frameDocument.close();
+
+    frameWindow.focus();
+
+    if (ieVersion() > 0) {
+        newWin = window.open('', '', 'toolbar=no,status=no,width=1,height=1');
+        newWin.document.write(html);
+        newWin.document.close();
+        self.focus();
+        newWin.print();
+        newWin.close();
+    } else {
+        setTimeout(function () {
+            if (frameWindow.print) {
+                frameWindow.print();
+            } else {
+                frameDocument.execCommand('print', false, null);
+            }
+        }, 500);
+    }
+
+}
+
+function ieVersion() {
+    if (!!navigator.userAgent.match(/Trident.*rv[ :]*11\./)) {
+        return 11;
+    } else if (!!navigator.userAgent.match(/Trident.*rv\./)) {
+        return 12;
+    }
+
+    var ua = window.navigator.userAgent;
+    var msie = ua.indexOf("MSIE ");
+
+    if (msie > 0) {
+        return parseInt(ua.substring(msie + 5, ua.indexOf(".", msie)));
+    }
+
+
+    return -1;
+}
+
+//var lupaFechada = true;
+function clickLupa(target) {
+    var selector = $(target).data('target');
+    var pesquisa = $(selector);
+    var display = pesquisa.css('display');
+
+    if (display === 'none') {
+        abreLupa(target);
+    } else {
+        //fechaLupa(target);
+    }
+}
+
+function abreLupa(target) {
+    var selector = $(target).data('target');
+    var pesquisa = $(selector);
+    var display = pesquisa.css('display');
+
+    pesquisa.css('display', 'block');
+
+    var input = pesquisa.find("input[type='text']");
+    input.val("");
+    input.focus();
+}
+
+function fechaLupa(target) {
+    var selector = $(target).data('target');
+    var pesquisa = $(selector);
+    var display = pesquisa.css('display');
+
+    pesquisa.css('display', 'none');
+    lupaFechada = true;
+}
+
+function executarConsulta(target) {
+    var selector = $(target).data('target');
+    var pesquisa = $(selector);
+
+    var form = pesquisa.find("form");
+    var texto = form.find("input[type='text']").val();
+
+    var tabela = texto.match(/^\s*(\d+)\s*$/);
+
+    if (tabela)
+        location.href = "/Tabela/" + tabela[1];
+    else
+        location.href = "/Busca?q=" + $.sidra.escapeQueryString(texto);
+}
+
+function findBootstrapEnvironment() {
+    var envs = ['xs', 'sm', 'md', 'lg'];
+
+    var $el = $('<div>');
+    $el.appendTo($('body'));
+
+    for (var i = envs.length - 1; i >= 0; i--) {
+        var env = envs[i];
+
+        $el.addClass('hidden-' + env);
+        if ($el.is(':hidden')) {
+            $el.remove();
+            return env;
+        }
+    }
+}
+
+function pesquisaInputChange() {
+    $(this).parent().parent().arvore('filter', $(this).val());
+}
+
+function pesquisaMenuShown() {
+    $(this).find(".pesquisas-menu-arvore").arvore('expande', 1);
+    $(this).find("input").val("");
+    $(this).find("input").focus();
+}
+
+function clickIconeAreaUsuario(parametros) {
+    location.href = parametros.href;
+//    var autenticado = $("body").data('autenticado');
+
+//    if (!autenticado) {
+//        location.href = parametros.href;
+//    } else {
+//        var tipo = parametros.tipo;
+
+//        $(".janela-usuario-container-" + tipo).JanelaUsuario('exibir');
+//    }
+}
+
+$(document).ready(function () {
+
+    //popupLancamento();
+
+    var linkLupa = $(".lupa-li a");
+    var buttonLupa = $("#sidra-pesquisa-sm-button");
+
+    var form = $(".navbar-default .pesquisa form");
+
+    var input = form.find("input[type='text']");
+    var button = form.find("button");
+
+    input.keyup(function (e) {
+        // ESC apertado
+        if (e.keyCode == 27) {
+            fechaLupa($(this).closest("form"));
+        }
+    });
+
+    $("body").on("click", function (e) {
+        var target = $(e.target);
+
+        if (target.closest(".pesquisa").length == 0 &&
+            target.closest("#sidra-pesquisa-sm-button").length == 0 &&
+            target.closest(".lupa-li").length == 0) {
+            
+            $(".navbar-default .pesquisa form").each(function () {
+                fechaLupa(this);
+            });
+        }
+    });
+
+    linkLupa.click(function (e) {
+        e.preventDefault();
+        
+        abreLupa(this);
+    });
+
+    buttonLupa.click(function (e) {
+        e.preventDefault();
+
+        abreLupa(this);
+    });
+
+    button.click(function () {
+        executarConsulta($(this).closest("form"));
+    });
+
+    form.submit(function (e) {
+        e.preventDefault();
+        executarConsulta(this);
+    });
+
+    $(".pesquisas-menu-arvore").click(
+        function (e) {
+            $(this).find("input").focus();
+            e.stopPropagation();
+        }
+    );
+
+    $(".pesquisas-menu-dropdown").on("shown.bs.dropdown", pesquisaMenuShown);
+    $("#pesquisas-menu-modal").on("shown.bs.modal", pesquisaMenuShown);
+
+    $(".pesquisas-menu-arvore").each(function () {
+        $(this).arvore();
+        $(this).arvore('expande', 0);
+    });
+
+    $(".pesquisas-menu-form input").keydown(pesquisaInputChange);
+    $(".pesquisas-menu-form input").keyup(pesquisaInputChange);
+
+
+    $("body").on("click", ".expander", function (e) {
+        // se a chamada se originar de dentro de um modal, deixar o link ser aberto pelo evento padrão
+        if ($(this).closest(".modal").length > 0)
+            return;
+
+        e.preventDefault();
+
+        var descricaoUrl = $(e.target).attr('href');
+
+        var m = $("#sidra-modal");
+        var modalBody = m.find(".modal-body");
+        var modalTitle = m.find(".modal-title");
+
+        modalBody.empty()
+            .addClass("tab-loading") // reaproveita essa classe pra usar a animação de loading sem precisar mudar muita coisa
+
+        modalTitle
+            .html("Carregando...")
+            .addClass("titulo-descritor-tabela");
+
+        $(m).modal("show");
+
+        $.ajax({
+            url: descricaoUrl,
+            headers: {
+                Accept: "text/html"
+            }
+        }).done(function (data) {
+            modalBody.append(data);
+
+            var descTitle = modalBody.find(".title");
+            descTitle.css("display", "none");
+
+            var title = descTitle.html();
+            modalTitle.html(title);
+
+            modalBody.removeClass("tab-loading");
+        });
+        //
+        return false;
+
+    });
+
+    // Configurações de login
+    $(".icone-area-usuario").each(function () {
+        var href = $(this).attr('href') || $(this).data('href');
+        var tipo = $(this).data('tipo');
+        
+        $(this).data('callback', clickIconeAreaUsuario);
+        $(this).data('parametros', {
+            'href': href,
+            'tipo': tipo
+        });
+    });
+
+
+    $(".areausuario-login-container").each(function () {
+        $(this).PerfilLogin();
+    });
+
+    $(".janela-usuario-container").each(function () {
+        $(this).JanelaUsuario();
+    });
+    //**//
+
+});
+
+
+var conteudoPopupLancamento = "".concat(
+    "<div class='modal'>",
+        "<div class='modal-dialog'>",
+            "<div class='modal-content'>",
+                "<div class='modal-header'>",
+                    '<button type="button" class="close" data-dismiss="modal">×</button>',
+                    '<h4 class="modal-title">Apresentamos a nova versão do SIDRA</h4>',
+                "</div>",
+                "<div class='modal-body'>",
+                    "<p>Prezados usuários,</p>",
+                    "<br />",
+                    "<p>Estamos lançando a nova versão do SIDRA, agora compatível com dispositívos móveis.</p>",
+                    "<br />",
+                    "<p>Caso deseje retornar à versão anterior, utilize o endereço <a href='http://www2.sidra.ibge.gov.br'>www2.sidra.ibge.gov.br.</a></p>",
+                "</div>",
+            "</div>",
+        "</div>",
+    "</div>"
+);
+
+var cookieLancamento = "viu_lancamento";
+var tempoCookie = 7 * 24 * 3600 * 1000; // 7 dias de validade
+
+function popupLancamento() {
+    var cookies = document.cookie;
+
+    var match = (cookies.indexOf(cookieLancamento) >= 0);
+    if (match)
+        return;
+
+    var agora = new Date();
+    agora.setTime(agora.getTime() + tempoCookie);
+
+    document.cookie = "viu_lancamento=true; expires=" + agora.toUTCString();
+
+    var modal = $(conteudoPopupLancamento)
+        .appendTo("body")
+        .modal("show");
+}
+

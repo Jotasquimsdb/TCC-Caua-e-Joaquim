@@ -1,0 +1,1043 @@
+﻿// enumeravel para indicar, aonde no layout, que um campo se encontra (coerente com o esperado pela consulta)
+var EditorLayout = null;
+var posicaoLayout = { "cabecalho": 1, "linha": 2, "coluna": 3 };
+var ultimoLayout = null;
+
+(function (globals, $, undefined) {
+
+    var limiteTexto = 40;
+
+    var mapaPosicoes = {
+        "cabecalho": {
+            campo: "noCabecalho",
+            texto: "No cabeçalho"
+        },
+        "coluna": {
+            campo: "naColuna",
+            texto: "Na coluna"
+        },
+        "linha": {
+            campo: "naLinha",
+            texto: "Na linha"
+        }
+    }
+
+    EditorLayout = $.sidra.criarClasse(EditorAplicativo, {
+        modo: "visao", // nome do modo para ser usada como nome e classe
+        textoBotao: "Quadro", // texto para o botão da barra superior
+        textoExecutar: "Visualizar",  // texto para o botão OK
+        //
+        parametrosJanela: {
+            "aria": "Editor de layout",
+            "collapsible": true,
+            "visible": false,
+            "resize": "always",
+            "buttons": ["maximize"]
+        },
+        _larguraLinha: 6,
+        //
+        inicializar: function (container) {
+            this.alvoDrag = null;
+            this.limite = false;
+            this.total = 0;
+            this.base("inicializar", "layout", container);
+        },
+        _onShow: function () {
+            // libera a seleção de territórios
+            editores.T.modoTerritorio(null, false);
+        },
+        _onHide: function () {
+            //
+        },
+        validar: function (lista) {
+            var marcados = lista.checked;
+            var conteudo = lista.contents;
+            var modo = (conteudo.modoSelecao || "selecao");
+            //
+            conteudo.erro = "";
+            if (!marcados) {
+                conteudo.erro = 'Deve haver no mínimo 1 elemento selecionado.';
+            }
+            else if (modo === "soma" && marcados > 1) {
+                var total = lista.data(conteudo.IndiceTotal);
+                if (total.length && total[0].checked)
+                    conteudo.erro = 'Categoria "' + total[0].contents.Nome + '" não pode ser somada';
+            }
+        },
+        iniciarEspelho: function (alvo) {
+            this.wrapper.detach().appendTo(alvo);
+        },
+        removerEspelho: function () {
+            this.wrapper.detach().appendTo(this.htmlCorpo);
+        },
+        //
+        _templateWrapper: "".concat(
+            '<div id="layout-wrapper" class="no-select">',
+            '<div class="app-info">',
+            '<h4><i class="glyphicon glyphicon-info-sign"></i>&nbsp;&nbsp;Selecione e arraste uma dimensão para definir sua posição</h4>',
+            '</div>',
+            '<div id="alvo-layout"></div><table id="editor-layout"></table>',
+            '</div>'
+        ),
+        _preencherJanela: function () {
+            this.htmlCorpo.attr("id", "layout-div");
+            //
+            this.wrapper = $(this._templateWrapper).appendTo(this.htmlCorpo);
+            this.htmlAlvo = this.wrapper.find("#alvo-layout"); // depois deve virar classe
+            this.htmlTabela = this.wrapper.find("#editor-layout");
+            //
+            this._atualizarConteudo();
+            // inicializa os eventos de drag
+            this._inicializarDrag();
+        },
+        _inicializarDrag: function () {
+            this.wrapper.dragndrop({
+                "data": this,
+                "onDragStart": this.evtIniciarDrag,
+                "onDragIn": null,
+                "onDragMove": this.evtProcessarAlvo,
+                "onDragOut": null,
+                "onDragEnd": this.evtTerminarDrag
+            });
+        },
+        _atualizarInterface: function () {
+            //
+        },
+        _atualizarConteudo: function () {
+            this.htmlAlvo.hide();
+            var tabela = this.htmlTabela.empty();
+
+            // inicializa contadores
+            var noCabecalho = this.noCabecalho.length;
+            var naColuna = this.naColuna.length;
+            var naLinha = this.naLinha.length;
+
+            // preenche nome da tabela
+            var cabColsSpan = 1 + naLinha + (naLinha == 0 ? 1 : 0);
+            tabela.append($('<tr><th class="drop y" colspan=' + cabColsSpan + ' class="drop y">' + descritorTabela.Nome + '</th></tr>'));
+
+            // preenche elementos no cabeçalho
+            for (var i = 0; i < noCabecalho; i++) {
+                tabela.append($('<tr>').append(
+                    $('<td>', {
+                        "class": "no-cabecalho drag drop y",
+                        "colspan": cabColsSpan,
+                        "id": "dim-" + this.noCabecalho[i]
+                    }).data("ind", i)
+                ));
+            }
+
+            //tabela.append($('<tr><td colspan=' + cabColsSpan + ' class="drop alvo y"></td></tr>'));
+            // preenche elementos nas colunas
+            for (var i = 0; i < naColuna; i++) {
+                var $linha = $("<tr>").appendTo(tabela);
+                if (i === 0) {
+                    // se for a primeira linha, coloca o espaçador antes do item na coluna
+                    $linha.append($('<td>', {
+                        "class": "vazio",
+                        "colspan": naLinha,
+                        "rowspan": (naColuna + (naLinha == 0 ? 1 : 0))
+                    }));
+                }
+                // cria o retângulo referente ao item na coluna
+                $linha.append($('<td>', {
+                    "class": "na-coluna drag drop y",
+                    "id": "dim-" + this.naColuna[i]
+                }).data("ind", i));
+            }
+
+            // preenche elementos nas linhas
+            var $linha = $('<tr></tr>');
+            for (var i = 0; i < naLinha; i++)
+                $linha.append($('<td>', {
+                    "class": "na-linha drag drop x",
+                    "id": "dim-" + this.naLinha[i]
+                }).data("ind", i));
+
+            // se não houver ninguem na linha e coluna, desenha a celula vazia ao lado da célula de dados
+            if (naLinha == 0 && naColuna == 0)
+                $linha.append("<td class='vazio'></td><td class='drop x y dados'></td>");
+            else
+                $linha.append("<td class='drop x y dados'></td>");
+            tabela.append($linha);
+
+            // atualiza o titulo do panel com a contagem de dimensões
+            if (controlador.inicializado)
+                controlador.atualizarTitulo();
+            else
+                this._atualizarTitulo();
+
+            // ajusta o layout às dimensões da janela
+            this.verificarTamanhoLayout();
+        },
+        // inicializar o layout da tabela. cada lista possui o índice para as referências de tabela
+        // não tem nenhuma "inteligência" por enquanto, apenas realizando uma distribuição simples
+        _reiniciar: function () {
+            this.noCabecalho = [];
+            this.naLinha = [];
+            this.naColuna = [];
+            // territórios no linha
+            this.naLinha.push(descritorTabela.Territorios.Niveis.contents.id);
+            // variáveis no cabecalho
+            this.noCabecalho.push(descritorTabela.Variaveis.contents.id);
+            // períodos na coluna
+            this.naColuna.push(descritorTabela.Periodos.contents.id);
+            // metade das classificações entre coluna e linha
+            var n = descritorTabela.Classificacoes.length;
+            var metade = n / 2;
+            for (var i = 0; i < n; i++) {
+                var indice = descritorTabela.Classificacoes[i].contents.id;
+                if (i < metade)
+                    this.naColuna.push(indice);
+                else
+                    this.naLinha.push(indice);
+            }
+        },
+        _setEstado: function (estado) {
+            var erro = true;
+            var nDimensoes = 0;
+            var posicoes = ["noCabecalho", "naColuna", "naLinha"];
+            //
+            while (posicoes.length) {
+                var dimensao = posicoes.shift();
+                var indices = this[dimensao] = estado[dimensao];
+                if ($.isArray(indices)) {
+                    nDimensoes += indices.length;
+                    for (var i = indices.length; i--;) {
+                        if (isNaN(mapaDimensoes[indices[i]]))
+                            throw "Identificador de dimensão inválido.";
+                    }
+                }
+            }
+            //
+            if (nDimensoes != referenciasTabela.length)
+                throw "Layout inválido.";
+        },
+        _getEstado: function () {
+            return {
+                noCabecalho: this.noCabecalho,
+                naColuna: this.naColuna,
+                naLinha: this.naLinha
+            };
+        },
+        autoCabecalho: function (marcado) {
+            if (marcado !== undefined)
+                $("#check-auto-cabecalho").prop("checked", marcado);
+            else
+                return $("#check-auto-cabecalho").prop("checked");
+        },
+        // atualiza o contador da tabela de layout, calculando as dimensões da consulta de saída
+        _templateTitulo: "<span>Layout: ${tabelas} [${linhas} x ${colunas}] - ${total}</span>",
+        _atualizarTitulo: function () {
+            // conta o numero de dimensões do resultado
+            var nTabelas = this._processaDimensaoLayout("cabecalho");
+            var nColunas = this._processaDimensaoLayout("coluna");
+            var nLinhas = this._processaDimensaoLayout("linha");
+
+            // atualiza o total e confere se o limite foi atingido
+            var nTotal = nTabelas * nColunas * nLinhas;
+
+            // a alteração de contagem influencia na validação do estado. verificar
+            this.tabelas = nTabelas;
+            this.colunas = nColunas;
+            this.total = nTotal;
+
+            this._validarEstado();
+
+            // gera o texto para o título da janela
+            var htmlTitulo = $.sidra.template(this._templateTitulo, {
+                tabelas: $.sidra.formatarNumero(nTabelas) + " tabela" + (nTabelas > 1 ? "s" : ""),
+                linhas: $.sidra.formatarNumero(nLinhas),
+                colunas: $.sidra.formatarNumero(nColunas),
+                total: $.sidra.formatarNumero(nTotal) + " valor" + (nTotal == 1 ? "" : "es")
+            });
+
+            return this._titulo(htmlTitulo);
+        },
+        _validarEstado: function () {
+            this.errosEstado = [];
+
+            if (this.tabelas > limiteTabelas) {
+                this.errosEstado.push("Limite de " + $.sidra.formatarNumero(limiteTabelas) + " tabelas excedido. Por favor, especifique outro layout.");
+            }
+
+            if (this.colunas > limiteColunas) {
+                this.errosEstado.push("Limite de " + $.sidra.formatarNumero(limiteColunas) + " colunas excedido. Por favor, especifique outro layout.");
+            }
+
+            //if (this.tabelas > limiteTabelas) {
+            //    this.errosEstado.push("Limite de " + limiteTabelas + " tabelas excedido. Por favor, especifique outro layout.");
+            // }
+
+            if (this.total > limitePosteriori) {
+                var erro = "A consulta possui " + $.sidra.formatarNumero(this.total) + " valores, excedendo o limite de <b>" + $.sidra.formatarNumero(limitePosteriori) + "</b> valores para download a posteriori." + " O limite para visualização imediata é de <b>" + $.sidra.formatarNumero(limiteConsulta) + "</b> valores e o limite para se fazer download imediato é de <b>" + $.sidra.formatarNumero(limiteDownload) + "</b> valores.";
+
+                //if (this.tabelas <= limitePosteriori)
+                // erro += " <button type='button' class='btn btn-link' data-toggle='modal' data-target='#modal-downloads'>Clique aqui para executar uma consulta a posteriori.</button>";
+                this.errosEstado.push(erro);
+            }
+
+            return this;
+        },
+        //
+        _contadorDimensao: function (contador) {
+            return (contador.modo === "soma" ? " - Soma" : " (" + contador.marcados + ")");
+        },
+        // conta o número de elementos marcados em uma lista de elementos de layout
+        _processaDimensaoLayout: function (posicao) {
+            var tipoPosicao = mapaPosicoes[posicao];
+            var dimensao = this[tipoPosicao.campo];
+            var autoCabecalho = this.autoCabecalho();
+            var total = 1;
+
+            for (var i = 0; i < dimensao.length; i++) {
+                // pega o numero de elementos marcados e multiplica pelo acumulado
+                var indice = mapaDimensoes[dimensao[i]];
+                var lista = referenciasTabela[indice];
+                var conteudo = lista.contents;
+                var contador = conteudo.contador();
+
+                // multiplica o contador e atualiza a posicao de layout no objeto
+                total *= (contador.modo === "soma" ? 1 : contador.marcados);
+                lista.posicao = posicaoLayout[posicao];
+
+                // atualiza o elemento na tabela, limitando o tamanho máximo do texto
+                var texto = conteudo.Nome;
+
+                if (texto.length > limiteTexto - 3)
+                    texto = texto.slice(0, limiteTexto - 3) + "...";
+
+                texto += this._contadorDimensao(contador);
+
+                var textoPosicao = tipoPosicao.texto;
+                //
+                var proCabecalho = (posicao !== "cabecalho" && autoCabecalho && contador.marcados === 1);
+
+                if (proCabecalho) {
+                    texto = "<span class='glyphicon glyphicon-upload'></span>&nbsp;" + texto;
+                    textoPosicao = 'Irá para o cabeçalho (possui apenas 1 valor)';
+                }
+                //
+                var textoAria = textoPosicao + ": " + texto;
+
+                var $linha = $("#dim-" + dimensao[i])
+                    .attr("title", textoPosicao)
+                //
+                $($.sidra.substituir('<span class="sr-only">{1}</span><span aria-hidden="true">{0}</span>', texto, textoAria))
+                    .toggleClass("erro", !!conteudo.erro)
+                    .toggleClass("alerta", proCabecalho)
+                    .appendTo($linha.empty());
+            }
+
+            // produto do total de elementos marcados nessa dimensão da tabela
+            return total;
+        },
+        // verifica se a tabela excedeu as dimensões da janela e, caso positivo, aplica a classe redutora de fonte
+        verificarTamanhoLayout: function () {
+            var $tabela = this.htmlTabela.removeClass("reduzir");
+            //
+            var largura = $tabela.outerWidth();
+            var larguraPai = $tabela.parent().width();
+            //
+            if (largura > larguraPai)
+                $tabela.addClass("reduzir");
+        },
+        // editor em "this"
+        evtIniciarDrag: function ($item) {
+            // exibe a linha de marcação de alvo
+            this.htmlAlvo.attr("style", "").show();
+            this.alvoDrag = null;
+        },
+        // editor em "this"
+        evtProcessarAlvo: function ($over, x, y) {
+            // verifica quais eixos o drop pode ocorrer
+            var emX = $over.hasClass("x");
+            var emY = $over.hasClass("y");
+            // pega a posição do elemento sobre o qual o drag se encontra,
+            // em relação ao document, e as dimensões necessárias
+            var altura = $over.outerHeight();
+            var largura = $over.outerWidth();
+            var razaoX = x / largura;
+            var razaoY = y / altura;
+            // encontra o local do alvo
+            var alvo = {};
+            if (emX && emY) {
+                // bloco de dados. pode ser em x ou y, mas sempre no final
+                alvo.pos = (razaoX < razaoY ? "x" : "y");
+                alvo.dir = -1;
+            }
+            else if (emX) {
+                // somente em X
+                alvo.pos = "x";
+                alvo.dir = (razaoX > 0.5 ? 1 : -1);
+            }
+            else if (emY) {
+                // somente em Y
+                alvo.pos = "y";
+                alvo.dir = (razaoY > 0.5 || $over.is("th") ? 1 : -1);
+            }
+            // atualiza o alvo
+            this.alvoDrag = alvo;
+            var posicaoCelula = $over.position();
+            var larguraLinha = this._larguraLinha;
+            //
+            if (alvo.pos == "x") {
+                this.htmlAlvo.css({
+                    "width": larguraLinha,
+                    "height": altura,
+                    "top": posicaoCelula.top,
+                    "left": posicaoCelula.left - larguraLinha / 2 + (alvo.dir < 0 ? 0 : largura - 1)
+                });
+            }
+            else {
+                this.htmlAlvo.css({
+                    "width": largura,
+                    "height": larguraLinha,
+                    "top": posicaoCelula.top - larguraLinha / 2 + (alvo.dir < 0 ? 0 : altura - 1),
+                    "left": posicaoCelula.left
+                });
+            }
+
+        },
+        _pegarLista: function ($elemento) {
+            if ($elemento.is("th") || $elemento.hasClass("no-cabecalho"))
+                return this.noCabecalho;
+            if ($elemento.hasClass("na-coluna"))
+                return this.naColuna;
+            if ($elemento.hasClass("na-linha"))
+                return this.naLinha;
+            // caso não seja nenhuma das condições, é drop para o campo de dados
+            return null;
+        },
+        // editor em "this"
+        evtTerminarDrag: function ($drag, $drop) {
+            // esconde a linha indicadora de alvo
+            this.htmlAlvo.hide();
+            // pega os dados do drag e apaga a referência
+            var alvo = this.alvoDrag;
+            this.alvoDrag = null;
+            // se o elemento selecionado for o mesmo de destino, não faz nada
+            if ($drag.is($drop))
+                return;
+            // pega os dado da lista de origem
+            var iOrigem = Number($drag.data("ind"));
+            var lOrigem = this._pegarLista($drag);
+            // pega os dados da lista de destino
+            var iDestino;
+            var lDestino = this._pegarLista($drop);
+            // se a lista de destino for definida, pegamos o índice da célula
+            if (lDestino !== null)
+                iDestino = Number($drop.data("ind")) + (alvo.dir == 1 ? 1 : 0);
+            else {
+                // se a lista for nula, estamos no campo de dados
+                lDestino = (alvo.pos == "x" ? this.naLinha : this.naColuna);
+                iDestino = lDestino.length; // sempre insere no final
+            }
+            // processa algumas condições de inserção
+            if (lOrigem === lDestino && iDestino >= iOrigem) {
+                // se a posição de destino for na origem, retorna sem fazer nada. senão, decrementa o indice
+                // de destino (pois o elemento vai ser retirado de uma posicao anterior e alterar seu indice)
+                if (iOrigem === iDestino)
+                    return;
+                else
+                    iDestino--;
+            }
+            // transfere o elemento de uma lista para outra
+            var el = lOrigem[iOrigem];
+            lOrigem.splice(iOrigem, 1);
+            lDestino.splice(iDestino, 0, el);
+            // redesenha tabela
+            this._atualizarConteudo();
+        },
+        // editor em "this"
+        evtRedimensionar: function (janela, largura, altura) {
+            // ajusta o layout às dimensões da janela
+            this.verificarTamanhoLayout();
+        },
+        //
+        executar: function () {
+            // a validação de visualização é realizada somente na hora da execução, e somente se não for uma tabela especial
+            if (!tabelaEspecial && this.total > limiteConsulta) {
+                var erro = "A consulta possui <b>" + $.sidra.formatarNumero(this.total) + "</b> valores, excedendo o limite de <b>" + $.sidra.formatarNumero(limiteConsulta) + "</b> valores para visualização imediata. O limite para se fazer download imediato é <b>" + $.sidra.formatarNumero(limiteDownload) + "</b> e o limite para se fazer download a posteriori (receber o arquivo por e-mail, quando terminar de ser gerado) é de <b>" + $.sidra.formatarNumero(limitePosteriori) + " valores.</b>";
+                //bootbox.alert(erro);
+                $.uiAlert(erro);
+                return;
+            }
+
+            try {
+                if (controlador.isPosteriori())
+                    this._executarPosteriori();
+                else
+                    this._executar();
+            }
+            catch (e) {
+                $.sidra.debugErro(e, "Erro executando consulta.");
+                var mensagem = (typeof e === "string" ? e : "Erro executando consulta.");
+                this._erroCarregando(editorResultado.janela.corpo, mensagem);
+            }
+        },
+        _executarPosteriori: function () {
+            try {
+                var marcacao = $.editor.gerarQueryConsulta();
+                var inputs = $.editor.pegarInputsDownload($("#grupo-posteriori"));
+                var params = $.editor.lerParametrosDownload(inputs, marcacao);
+
+                var emails = $("#posteriori-email").prop("value");
+
+                params.delayed = true;
+
+                if (emails)
+                    params.emails = emails;
+
+                $.ajax({
+                    type: "POST",
+                    url: $.sidra.origin() + urls.download,
+                    data: params,
+                    success: function (msg) {
+                        $.uiAlert("Geração a posteriori", "Consulta cadastrada com sucesso!");
+                    },
+                    error: function (xhr, status, erro) {
+                        $.uiAlert("Geração a posteriori", "<span class='erro'>Erro: " + erro + "</span>");
+                    }
+                });
+            }
+            catch (e) {
+                $.sidra.debugErro(e);
+            }
+        },
+
+        _executar: function () {
+            // abrir o panel de resultado em tela cheia
+            var janela = editorResultado.janela;
+            janela.panel.janela("maximize");
+
+            //.janela("title", "Resultado"); // botei as opções de resultado pra ficar no cabeçalho
+
+            if (!tabelaEspecial && !location.hash)
+                $.sidra.inserirHash("resultado");
+
+            // cria o overlay de loading
+            var loading = carregando(janela.corpo, "Aguardando resultado.");
+
+            // verificar a existencia de dados em cache
+            var temCache = (!!cacheConsulta);
+
+            // se não existem dados em cache, criar um novo objeto de cache
+            if (!temCache)
+                criarCacheConsulta();
+
+            cacheConsulta.loading = loading;
+
+            var T = this;
+
+            T._prepararQuery(
+                (tabelaEspecial || !temCache),
+                function (dimensoes, dados) {
+                    T._executarQuery(editorResultado.janela, dimensoes, dados);
+                });
+        },
+
+        _prepararDimensoes: function (gerarMarcacoes, callback, opcoes) {
+            opcoes = (opcoes || {});
+
+            // montar o objeto para representar a query
+            var dimensoes = {
+                titulo: 'Tabela ' + idTabela + " - " + descritorTabela.Nome,
+                fonte: descritorTabela.Fonte,
+                notas: descritorTabela.Notas,
+                cabecalhos: [],
+                colunas: [],
+                linhas: [],
+                medidas: this._gerarMapaMedidas()
+            };
+
+            // incluir elementos da consulta
+            var mapaDimensao = {};
+            var referencias = listarReferencias();
+            var nReferencias = referencias.length;
+
+            for (var i = 0; i < referencias.length; i++) {
+                var conteudo = referencias[i].contents;
+                var dimensao = new CampoDimensao(i, conteudo);
+
+                referencias[i] = mapaDimensao[conteudo.id] = dimensao;
+
+                if (dimensao.tipo >= tipoDimensao.territorio)
+                    dimensao.rotulo = this._gerarRotuloNiveis(editores[dimensao.id].lista);
+            }
+
+            // lista todas as dimensões na ordem da hierarquia e insere a dimensão na posição correta
+            var posicoes = {
+                "noCabecalho": "cabecalhos",
+                "naColuna": "colunas",
+                "naLinha": "linhas"
+            };
+
+            //
+            for (var posicao in posicoes) {
+                var alvo = dimensoes[posicoes[posicao]];
+                var ids = this[posicao].slice();
+
+                while (ids.length) {
+                    alvo.push(mapaDimensao[ids.shift()]);
+                }
+            }
+
+            // se não for necessário gerar as marcações (caso seja apenas uma alteração de layout), continuar a execução
+            if (!gerarMarcacoes) {
+                callback(dimensoes, null);
+                return;
+            }
+
+            // senão, devemos ler os dados para executar a query
+            var that = this;
+
+            AsyncFork([], referencias.length,
+                function (selecoes, indice) {
+                    // gerar a query para a dimensão
+                    var dimensao = referencias[indice];
+                    that._gerarQueryDimensao(this, dimensao, opcoes);
+                },
+                function (selecoes) {
+                    callback(dimensoes, selecoes);
+                });
+        },
+
+        _prepararQuery: function (gerarMarcacoes, callback) {
+            var that = this;
+
+            this._prepararDimensoes(gerarMarcacoes, function (dimensoes, selecoes) {
+                // se não for necessário gerar as marcações (caso seja apenas uma alteração de layout), continuar a execução
+                if (!gerarMarcacoes) {
+                    callback(dimensoes, null);
+                    return;
+                }
+
+                // senão, devemos ler os dados para executar a query
+                var dados = ["t/" + idTabela, "f/c", "h/n"];
+                var indiceBase = dados.length;
+
+                // procedimendo de finalização (join)
+                for (var i = selecoes.length; i--;)
+                    dados[indiceBase + i] = selecoes[i];
+
+                // gerar a query de decimais, se necessário
+                var decimais = that._gerarQueryDecimais();
+                if (decimais)
+                    dados.push(decimais);
+
+                // montar a string final e executar
+                dados = dados.join("/");
+
+                callback(dimensoes, dados);
+            });
+        },
+        _gerarMapaMedidas: function () {
+            var mapa = {};
+            //
+            var medidas = descritorTabela.UnidadesDeMedida;
+            for (var i = medidas.length; i--;) {
+                var unidade = medidas[i];
+                mapa[unidade.Id] = unidade.Nome;
+            }
+            //
+            return mapa;
+        },
+
+        _gerarQueryDimensao: function (async, dimensao, opcoes) {
+            var lista = editores[dimensao.id].lista;
+            var tag = lista.contents.tag;
+
+            if (tag == tipoDimensao.nivel) {
+                this._gerarQueryNivel(async, dimensao, lista, opcoes);
+            }
+            else if (tag == tipoDimensao.visao) {
+                this._gerarQueryVisao(async, dimensao, lista, opcoes);
+            }
+            else {
+                var inverter = (tag === tipoDimensao.periodo);
+                this._gerarQuerySimples(async, dimensao, lista, inverter, opcoes);
+            }
+        },
+
+        _finalizarTaskQuery: function (async, dimensao, dados) {
+            async.data[dimensao.indice - 1] = dados;
+            async.done();
+        },
+
+        _gerarQueryDecimais: function () {
+            var decimais = [];
+            var variaveis = descritorTabela.Variaveis.getChecked();
+            //
+            for (var i = 0; i < variaveis.length; i++) {
+                var variavel = variaveis[i].contents;
+                if (variavel.precisao)
+                    decimais.push("v" + variavel.Id + " " + variavel.decimais);
+            }
+            // gera a string final, se houver algum elemento, e retorna
+            return (decimais.length ? "d/" + decimais.join(",") : null);
+        },
+
+        // processa dimensão informada a partir da referência de lista, retornando a string de consulta
+        _gerarQuerySimples: function (async, dimensao, lista, inverter) {
+            // pega a lista de elementos marcados na lista e ordena pela ordem de inserção (id do nó de lista)
+            var marcados = lista.getChecked();
+            marcados.sort(metodosOrdenacao.insercao);
+
+            // inverte, se necessário (poderia ter mudado a função ali em cima, mas iria embolar)
+            if (inverter)
+                marcados.reverse();
+
+            // processas os dados dos campos marcados
+            var query = []; // vetor que será convertido na string de query
+            var nMarcados = marcados.length;
+
+            for (var j = 0; j < nMarcados; j++) {
+                var campo = marcados[j].contents;
+                query.push(campo.Id);
+                dimensao.campos.push({
+                    "id": campo.Id,
+                    "nome": campo.Nome,
+                    "medida": (campo.UnidadeDeMedida || null)
+                });
+            }
+
+            // inclui os dados na string de acordo com o modo de seleção
+            if (lista.contents.modoSelecao != "soma" || marcados.length === 1) {
+                // se for seleção, campos separados por vírgula
+                query = query.join(",");
+            }
+            else {
+                // gera o nome completo do somatório
+                var somados = $.sidra.map(dimensao.campos, "nome").join(" + ");
+
+                // se for soma, o ID recebido no JSON é a concatenação dos IDs separados
+                // por " + ", enquanto o vetor de nomes passa a ter apenas uma entrada
+                var id = query.join(" + ");
+
+                dimensao.campos = [{
+                    "id": id,
+                    "nome": "Soma",
+                    "modo": "soma",
+                    "comp": somados,
+                    "medida": null
+                }];
+
+                // campos separados por espaço
+                query = query.join(" ");
+            }
+            //
+            query = lista.contents.id + "/" + query;
+            this._finalizarTaskQuery(async, dimensao, query);
+        },
+
+        _gerarQueryNivel: function (async, dimensao, lista, opcoes) {
+            // senão, é seleção de unidades. processa a consulta para cada nivel
+            // (fazendo a partir dos grupos da árvore, porque facilita a checagem das condições)
+            dimensao.niveis = 0;
+
+            var query = [];
+            var usarIds = !!opcoes.usarIdsTerritorios;
+
+            // verifica se devemos incluir territórios extintos nas consultas
+            var incluirExtintos = false;
+            var niveis = lista.groups();
+
+            for (var j = 0; j < niveis.length; j++) {
+                var nivel = niveis[j];
+
+                if (nivel.checked == 0)
+                    continue;
+
+                // pega alguns atributos relevantes e incrementa o contador de niveis com dados
+                dimensao.niveis++;
+
+                var codNivel = nivel.contents.ref.Id;
+                var siglaNivel = nivel.contents.ref.Sigla;
+                var unidades = nivel.getChecked(incluirExtintos);
+                var todos = (nivel.checked === nivel.count); // verifica se todas as unidades estão marcadas
+
+                unidades.sort(metodosOrdenacao.insercao);
+
+                // preenche a lista de unidades
+                var ters = (todos ? null : []);
+
+                for (var k = 0; k < unidades.length; k++) {
+                    var unidade = unidades[k].contents.ref;
+                    var codigo = (usarIds ? unidade.Id : unidade.cod);
+
+                    // verifica se a unidade está extinta
+                    if (unidade.Extincao)
+                        incluirExtintos = true;
+
+                    // só precisa preencher a lista de IDs se não estiverem todas as unidades selecionadas
+                    if (!todos)
+                        ters.push(codigo);
+
+                    // insere a unidade nos campos da dimensão
+                    dimensao.campos.push({
+                        id: codigo,
+                        nivel: codNivel,
+                        sigla: siglaNivel,
+                        nome: unidade.Nome,
+                        comp1: unidade.comp1,
+                        comp2: unidade.comp2,
+                        uf: unidade.uf
+                    });
+                }
+
+                // monta a string de seleção do nivel
+                query.push("n" + codNivel, (todos ? "all" : ters.join(",")));
+            }
+
+            // finaliza a string de query e retorna
+            if (incluirExtintos)
+                query.push("u/y");
+
+            query = query.join("/");
+            this._finalizarTaskQuery(async, dimensao, query);
+        },
+
+        _gerarRotuloNiveis: function (lista) {
+            if (lista.contents.tag == tipoDimensao.visao) {
+                var marcado = lista.checked.contents;
+                return marcado.ref.Nome;
+            }
+            else {
+                var nomesNiveis = [];
+                var niveis = lista.groups();
+
+                for (var j = 0; j < niveis.length; j++) {
+                    var nivel = niveis[j];
+                    if (nivel.checked > 0)
+                        nomesNiveis.push(nivel.contents.ref.Nome);
+                }
+
+                // gera o texto de rótulo da dimensão
+                var rotuloDimensao = nomesNiveis.pop();
+
+                if (nomesNiveis.length)
+                    rotuloDimensao = nomesNiveis.join(", ") + " e " + rotuloDimensao;
+                else if (rotuloDimensao == "Brasil") // meio feio fazer assim. talvez mudar algum dia :x
+                    rotuloDimensao = "";
+
+                return rotuloDimensao;
+            }
+        },
+
+        // processa a dimensão informada com relação a uma arvore de territórios, retornando a query de consulta
+        _gerarQueryVisao: function (async, dimensao, lista, opcoes) {
+            // processa a consulta para uma visão
+            var itemLista = lista.checked;
+            var visao = itemLista.contents;
+
+            // se a visão não estiver omitida, finalizar imediatamente
+            if (!visao.omitido)
+                return this._finalizarQueryVisao(async, dimensao, visao, opcoes);
+
+            // senão, executar consulta ajax para obtê-la e, só então, finalizar
+            var that = this;
+            controlador.carregarVisaoTerritorial(itemLista, function () {
+                that._finalizarQueryVisao(async, dimensao, visao, opcoes);
+            });
+        },
+
+        _finalizarQueryVisao: function (async, dimensao, visao, opcoes) {
+            // processa os campos das unidades de visão, verificando se existe mais de um nível territorial
+            var niveis = {};
+            var nNiveis = 0;
+            var unidades = visao.unidades;
+            var incluirExtintos = false;
+
+            var usarIds = !!opcoes.usarIdsTerritorios;
+
+            for (var i = 0; i < unidades.length; i++) {
+                var unidade = unidades[i];
+                var referencia = unidade.ref;
+                var codNivel = referencia.nivel.Id;
+
+                var codigo = (usarIds ? referencia.Id : referencia.cod);
+
+                dimensao.campos.push({
+                    id: codigo,
+                    nivel: codNivel,
+                    sigla: referencia.nivel.Sigla,
+                    nome: referencia.Nome,
+                    indentacao: unidade.indentacao
+                });
+
+                if (referencia.Extincao)
+                    incluirExtintos = true;
+
+                // verificar se o nivel ja foi acessado
+                if (!niveis[codNivel]) {
+                    niveis[codNivel] = true;
+                    nNiveis++;
+                }
+            }
+
+            dimensao.niveis = nNiveis;
+
+            var query = "g/" + visao.Id + (incluirExtintos ? "/u/y" : "");
+            this._finalizarTaskQuery(async, dimensao, query);
+        },
+
+
+        _executarQuery: function (janela, layout, query, callback) {
+            if (query === null) {
+                // se a string de consulta for nula, significa que os dados já estão disponíveis e é apenas uma atualização de layout
+                this._queryAtualizarLayout(janela, layout);
+            }
+            else if (tabelaEspecial) {
+                // se for uma tabela especial, pegar o resultado diretamente do descritor
+                this._queryTabelaEspecial(janela, layout);
+            }
+            else {
+                // senão, executar a consulta 
+                this._queryPOST(janela, layout, query, callback);
+            }
+        },
+
+        _queryAtualizarLayout: function (janela, layout) {
+            var cache = cacheConsulta;
+            var loading = cache.loading;
+            carregando(cache.loading, mensagens.tabela);
+            Async(function () {
+                janela.corpo.visao("layout", layout);
+                // fecha o modal
+                removeCarregando(loading);
+                cache.loading = null;
+            });
+        },
+
+        _queryTabelaEspecial: function (janela, layout) {
+            var cache = cacheConsulta;
+            var loading = cache.loading;
+            var visao = janela.corpo.visao("iniciar", {
+                "layout": layout,
+                "dados": descritorTabela.Valores || []
+            });
+            cache.loading = null;
+            removeCarregando(loading);
+        },
+
+        _queryPOST: function (janela, layout, query, callback) {
+            var that = this;
+            var cache = cacheConsulta;
+            var loading = cache.loading;
+
+            carregando(loading, mensagens.valores);
+
+            // prepara a conexão com o hub
+            var hub = new LeituraHub();
+
+            // prepara os parâmetros e executa a consulta
+            var parametros = {
+                params: query,
+                versao: versaoDados,
+                sessao: hub.id,
+                desidentifica: lerEstadoDesidentificacao()
+            }
+
+            var url = urls.getValores + idTabela;
+            var inicio = +(new Date());
+
+            hub.onProgresso = function (etapa, progresso) {
+                if (!cache.abortado && !cache.erro && cache.xhr && loading)
+                    evtProgressoQuery(loading, etapa, progresso);
+            };
+
+            hub.connect();
+            cache.hub = hub;
+
+            //
+            var xhr = $.post(url, parametros)
+                .done(function (resposta) {
+                    // função para caso de sucesso
+                    var fim = +(new Date());
+                    var erroConsulta = null;
+                    cache.xhr = null;
+
+                    console.log("Total: " + ~~(fim - inicio));
+                    //console.dir(JSON.stringify(resposta));
+
+                    if (!resposta || !resposta.length) {
+                        // se a reposta estava vazia, sinalizar este erro
+                        erroConsulta = mensagens.semDados;
+                    }
+                    else if (typeof resposta === "string") {
+                        // se a resposta for uma string, significa uma exceção tratada. informar o erro
+                        erroConsulta = "Erro executando consulta";//resposta;
+                    }
+
+                    if (erroConsulta != null) {
+                        // se a consulta não foi abortada, atualizar a mensagem do overlay
+                        if (!cache.abortado)
+                            that._erroCarregando(loading, erroConsulta);
+                        cache.erro = true;
+                    }
+
+                    // se esta consulta encontrou um erro ou foi abortada no meio tempo, sair aqui
+                    if (cache.abortado || cache.erro)
+                        return;
+
+                    // senão, continuar com a exibição
+                    carregando(loading, mensagens.tabela);
+
+                    Async(function () {
+                        var visao = janela.corpo.visao("iniciar", {
+                            "layout": layout,
+                            "dados": resposta
+                        });
+
+                        // fecha o modal
+                        removeCarregando(loading);
+                        cache.loading = null;
+
+                        // chama o callback com os dados, se houver
+                        if ($.isFunction(callback))
+                            callback(visao);
+
+                        // chama os listeners que aguardavam na fila
+                        while (cache.fila.length)
+                            (cache.fila.pop())();
+                    });
+                })
+                .fail(function (xhr, status, msg) {
+                    // função para o caso de falha
+                    cache.erro = true;
+                    cache.xhr = null;
+                    // caso a consulta ainda esteja ativa e não tenha sido explicitamente abortada, informar o erro
+                    if (status !== "abort" && cache === cacheConsulta) {
+                        that._erroCarregando(loading, (status === "timeout")
+                            ? mensagens.erroTimeout
+                            : "Erro executando consulta"
+                        );
+                    }
+                });
+
+            // e enquanto aguarda o POST, salvar as seleções atuais
+            cache.xhr = xhr;
+            controlador.armazenarEstado();
+        }
+    });
+
+    function evtProgressoQuery(loading, etapa, progresso) {
+        if (!etapa || etapa.toUpperCase() !== "LEITURA")
+            return;
+
+        var progresso = parseFloat(progresso) / 100;
+        progressoCarregando(loading, progresso);
+    }
+
+    function CampoDimensao(indice, conteudo) {
+        this.indice = indice + 1;           // indice da dimensão em relação ao layout
+        this.ordem = conteudo.indice;       // indice da dimensão na ordem do descritor
+        this.id = conteudo.id;              // id da dimensão
+        this.tipo = conteudo.tag;           // tipo da dimensão (que foi salva na "tag" da lista na abertura da página)
+        this.rotulo = conteudo.Nome;        // nome utilizados na exibição da dimensão
+        this.possuiMedida = (conteudo.possuiMedida || false); // se a dimensão possui unidade de medida
+        this.campos = [];                   // vetor para salvar os campos, que será preenchido adiante
+    }
+
+})(this, jQuery);

@@ -1,0 +1,279 @@
+﻿
+// Variável destinada a passagem de parametros na função _verificarLoginExterno
+// necessário para compatibilidade com IE8 e IE9, onde não é possível passar parametros
+// a função setTimeout
+var parametrosSetTimeout = null;
+
+function JanelaUsuario() {
+
+}
+
+$.extend(JanelaUsuario.prototype, {
+    _defaults: {
+        'default-class': 'janela-usuario-container',
+        'janela-class': 'janela-usuario',
+        'tabs-class': 'tabs',
+        'conteudo-class': 'conteudo',
+        'list-class': 'list',
+        'linha-tabela-class': 'linha-tabela',
+        'mais-resultados-class': 'mais-resultados',
+        'icone-area-usuario-class': 'icone-area-usuario',
+        'resultado-vazio-class': 'resultado-vazio'
+    },
+
+    markerClassName: 'janela-usuario-start',
+
+    callback: null,
+    parametros: null,
+
+    _attachPlugin: function (target, options) {
+        // Verifica se o monitor já foi inicializada
+        if (target.hasClass(this.markerClassName)) {
+            return;
+        }
+
+        // Estende as opcoes padrão 
+        options = $.extend({}, this._defaults, options);
+        target.data('options', options);
+
+        // Define clique na aba
+        target
+            .find("." + options['tabs-class'] + " li")
+            .click({
+                objThis: this,
+                objTarget: target
+            }, function (evt) {
+                evt.preventDefault();
+
+                evt.data.objThis._alterarAba(
+                    evt.data.objTarget, this
+                );
+            });
+
+        // Define clique fora da modal
+        $(document).click({
+            'objThis': this,
+            'target': target
+        }, function (evt) {
+
+            if (!$(".janela-usuario-container:visible").length)
+                return;
+
+            var options = evt.data.target.data('options');
+            var cls = "." + options['janela-class'];
+            var icone = "." + options['icone-area-usuario-class'];
+
+            if (
+                $(evt.target).closest(cls).length == 0 &&
+                $(evt.target).closest(icone).length == 0
+            ) {
+                target.css('display', 'none');
+
+                var tipo = evt.data.target.data('tipo');
+
+                if (tipo == 'xs') {
+                    $("body").css('overflow', '');
+                }
+            }
+        });
+        //**//
+
+        return target;
+    },
+
+    _alterarAba: function (target, abaThis) {
+        var options = target.data('options');
+        var nomeAba = $(abaThis).data('nome');
+
+        if ($(abaThis).hasClass('active')) {
+            return;
+        }
+
+        target.find("." + options['tabs-class'] + " li").removeClass('active');
+        $(abaThis).addClass('active');
+
+        this._preencherPagina(target, nomeAba);
+    },
+
+    _preencherPagina: function (target, nomeAba) {
+        if (nomeAba == 'quadros' || nomeAba == 'historico') {
+            this._iniciarPaginaLista(target, nomeAba);
+        }
+    },
+
+    _iniciarPaginaLista: function (target, nomeAba) {
+        var options = target.data('options');
+        var conteudo = target.find("." + options['conteudo-class']);
+
+        conteudo.html("");
+
+        var ul = $("<ul>")
+            .addClass(options['list-class'])
+            .appendTo(conteudo);
+
+        target['registroAba-' + nomeAba] = ul;
+
+        this._preencherResultadoPaginaLista(target, nomeAba, 0);
+
+        var mais = $("<li>")
+            .addClass(options['mais-resultados-class'])
+            .css('display', 'none')
+            .appendTo(ul);
+
+        $("<a>")
+            .data('inicio', 0)
+            .attr("href", "#")
+            .html("Mais Resultados")
+            .click({
+                'objThis': this,
+                'target': target
+            }, function (evt) {
+                var inicio = $(this).data('inicio');
+                evt.data.objThis._clickMaisResultados(target, nomeAba, inicio);
+            })
+            .appendTo(mais);
+    },
+
+    _clickMaisResultados: function (target, nomeAba, inicio) {
+        this._preencherResultadoPaginaLista(target, nomeAba, inicio);
+    },
+
+    _preencherResultadoPaginaLista: function (target, nomeAba, inicio) {
+        var options = target.data('options');
+        var conteudo = target.find("." + options['conteudo-class']);
+        var urlAba = "/janelausuario/" + nomeAba;
+        var ul = target['registroAba-' + nomeAba];
+
+        conteudo.loading('Carregando dados');
+
+        $.ajax({
+            type: "GET",
+            url: urlAba,
+            cache: false,
+            data: {
+                'inicio': inicio
+            },
+            'target': target,
+            'objThis': this
+        }).fail(function () {
+            alert('Erro ao realizar consulta');
+        }).done(function (data) {
+            var target = this.target;
+            var objThis = this.objThis;
+            var options = target.data('options');
+            var mais = conteudo.find("." + options['mais-resultados-class']);
+
+            for (var i = 0; i < data.Links.length; i++) {
+                var link = data.Links[i];
+
+                var li = $("<li>")
+                    .addClass(options['linha-tabela-class'])
+                    .insertBefore(mais);
+
+                $("<a>")
+                    .attr('href', link.Url)
+                    .html(link.Texto)
+                    .appendTo(li);
+            }
+
+            if (data.Vazio) {
+                var li = $("<li>")
+                    .addClass(options['resultado-vazio-class'])
+                    .insertBefore(mais);
+
+                $("<div>")
+                    .html(data.Mensagem)
+                    .appendTo(li);
+            } else {
+                mais.find("." + options['resultado-vazio-class']).remove();
+            }
+
+            if (data.MaisPaginas) {
+                var maisLink = mais.find("a");
+                var maisInicio = maisLink.data('inicio') + data.Links.length;
+
+                maisLink.data('inicio', maisInicio);
+                mais.css('display', 'block');
+            } else {
+                mais.css('display', 'none');
+            }
+
+            conteudo.loading('close');
+        });
+    },
+
+    _exibirJanelaUsuarioPlugin: function (target) {
+        var options = target.data('options');
+        var tipo = target.data('tipo');
+
+        target.css('display', 'block');
+
+        var body = $("body");
+
+        var nome = body.data('nome');
+        var email = body.data('email');
+        var foto = body.data('foto');
+
+        if (tipo == 'xs') {
+            body.css('overflow', 'hidden');
+        }
+
+        target.find(".nome a").html(nome);
+        target.find(".email a").html(email);
+
+        var box = target.find(".box");
+        box.html("");
+
+        if (foto) {
+            $("<img>")
+                .attr("src", foto)
+                .appendTo(box);
+        } else {
+            var iniciais = this._iniciaisNome(nome);
+            box.html(iniciais);
+        }
+
+        var abaThis = target.find("." + options['tabs-class'] + " li:first");
+        this._alterarAba(target, abaThis);
+    },
+
+    _iniciaisNome: function (nome) {
+        if (!nome) {
+            return "";
+        }
+
+        var iniciais = "";
+        var partes = nome.split(" ");
+
+        if (partes.length > 1) {
+            if (partes[0] && partes[0].length > 0) {
+                iniciais += partes[0][0];
+            }
+
+            if (partes[1] && partes[1].length > 0) {
+                iniciais += partes[1][0];
+            }
+        } else {
+            iniciais = nome.substr(0, 2);
+        }
+
+        return iniciais.toUpperCase();
+    }
+
+});
+
+$.fn.JanelaUsuario = function (options, arg1) {
+    if (typeof options == 'string') {
+        if (!pluginJanelaUsuario['_' + options + 'JanelaUsuarioPlugin']) {
+            throw 'Método não encontrado: ' + options;
+        }
+
+        return pluginJanelaUsuario['_' + options + 'JanelaUsuarioPlugin'].call(pluginJanelaUsuario, this, arg1);
+    } else {
+        pluginJanelaUsuario._attachPlugin(this, options || {});
+    }
+
+    return this;
+};
+
+var pluginJanelaUsuario = $.JanelaUsuario = new JanelaUsuario();

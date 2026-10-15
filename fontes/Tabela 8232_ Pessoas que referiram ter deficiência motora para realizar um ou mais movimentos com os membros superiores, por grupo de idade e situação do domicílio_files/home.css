@@ -1,0 +1,204 @@
+﻿.rodape-aba h5 {
+  font-weight: bold;
+}
+.rodape-aba th {
+  white-space: nowrap;
+}
+.rodape-aba tbody th {
+  text-align: center;
+}
+.modal .rodape-aba {
+  margin: 0;
+}
+@media screen {
+  .pesquisas-main-tab > li.btn-aba {
+    display: none;
+  }
+  .janela-dados-overflow {
+    overflow: auto;
+  }
+  .wrapper-conteudo-scroll {
+    padding: 1px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rodape-aba {
+    margin: 32px;
+    margin-top: 0;
+    font-size: 14px;
+  }
+  .rodape-aba th,
+  .rodape-aba td {
+    padding: 0 12px 12px 0;
+  }
+  .graficos-select {
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-bottom: 32px;
+  }
+  .graficos-select select {
+    width: auto;
+    max-width: 100%;
+  }
+  .tab-loading {
+    height: 200px;
+    margin-top: 40px;
+    text-align: center;
+    font-size: 16px;
+  }
+  .tab-loading:after {
+    content: "";
+    display: block;
+    background: url("imagens/loading-sidra-sm.gif");
+    margin-top: 40px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 64px;
+    height: 64px;
+    text-align: center;
+  }
+  .titulo-aba {
+    padding: 32px;
+    padding-top: 12px;
+  }
+  .titulo-aba h4 button {
+    margin-bottom: 6px;
+    margin-left: 12px;
+  }
+  .tab-content {
+    padding: 12px 0;
+    border-bottom: 1px solid #b3b3b3;
+    border-left: 1px solid #b3b3b3;
+    border-right: 1px solid #b3b3b3;
+    border-top: 0;
+    background-color: white;
+    margin-bottom: 15px;
+  }
+  .tab-content hr {
+    display: none;
+  }
+  .tab-content .janela-borda-dados {
+    padding: 32px;
+  }
+  .tab-content .panel {
+    box-shadow: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+  .tab-content .panel-heading {
+    border-radius: 0;
+  }
+  .tituloTabela {
+    display: none;
+  }
+  .janela-tabela-categoria {
+    position: relative;
+    float: left;
+    padding: 10px;
+  }
+  #logo-container img {
+    max-height: 100px;
+    max-width: 483px;
+  }
+  .grafico {
+    text-align: center;
+  }
+  .grafico-noWidth {
+    max-width: none !important;
+  }
+  .grafico-noWidth svg {
+    max-width: none !important;
+  }
+  .grafico svg {
+    overflow: visible;
+    max-width: 700px;
+    height: 400px;
+  }
+  .regiao-select {
+    margin-top: 32px;
+    margin-bottom: 12px;
+  }
+  .regiao-select label {
+    font-weight: normal;
+  }
+  .regiao-select select {
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+    margin-left: 10px;
+  }
+  .aba-box-texto {
+    padding: 15px 0;
+  }
+  .aba-box {
+    padding: 15px;
+    margin-bottom: 25px;
+  }
+  .selecionado {
+    font-weight: bold;
+  }
+}
+@media screen and (max-width: 767px) {
+  .rodape-aba {
+    margin: 12px;
+    margin-top: 0;
+    font-size: 12px;
+  }
+  .rodape-aba th,
+  .rodape-aba td {
+    padding: 0 8px 8px 0;
+  }
+  .titulo-aba {
+    padding: 12px;
+    padding-top: 0;
+  }
+  .titulo-aba h4 {
+    font-size: 16px;
+  }
+  .tab-content .janela-borda-dados {
+    padding: 12px;
+  }
+}
+@media print {
+  #logo-container {
+    display: none;
+  }
+  #pesquisas-tab {
+    display: none;
+  }
+  .regiao-select {
+    display: none;
+  }
+  .pesquisas-fixed-menu {
+    display: none;
+  }
+  .pesquisas-dropdown {
+    display: none;
+  }
+  .titulo-aba {
+    font-weight: bold;
+    font-size: 20px;
+  }
+  .titulo-aba .relacao-tabelas {
+    display: none;
+  }
+  .grafico svg {
+    height: 400px;
+  }
+}
+.grafico500 svg {
+  height: 500px;
+}
+.grafico300 svg {
+  height: 300px;
+}
+.grafico-pequeno svg {
+  height: 450px;
+}
+.grafico .janela-dados > div {
+  max-width: 700px;
+  margin-left: auto;
+  margin-right: auto;
+}

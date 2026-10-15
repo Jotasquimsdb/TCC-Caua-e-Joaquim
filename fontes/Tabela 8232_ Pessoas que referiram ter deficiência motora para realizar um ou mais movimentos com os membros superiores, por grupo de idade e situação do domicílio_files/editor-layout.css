@@ -1,0 +1,79 @@
+﻿/* Relativos à edição de layout de tabela */
+#layout-wrapper {
+  position: relative;
+}
+#alvo-layout {
+  position: absolute;
+  background-color: #F00;
+}
+#editor-layout {
+  margin: auto;
+  /*border-spacing: 4px;*/
+  /*border-collapse: separate;*/
+  /*border-spacing: 4px;*/
+  border-collapse: separate;
+  max-width: 720px;
+}
+/* Redução de fontes, para caso a tabela não caiba na janela */
+#editor-layout.reduzir * {
+  font-size: 10px;
+  padding: 2px;
+}
+#editor-layout td,
+#editor-layout th {
+  border: 1px solid #000;
+  text-align: center;
+  padding: 8px;
+}
+#editor-layout .drag.in {
+  outline: 2px dashed #00F;
+  background-color: #c8ecc2;
+  /*border-width: 2px;
+    border-style: dashed;
+    border-color: #00F;*/
+}
+#editor-layout th {
+  background: #5E98C4;
+  color: white;
+}
+#editor-layout .vazio {
+  background: #a3acb0;
+  /*background: #DDD;*/
+  min-width: 12px;
+}
+#editor-layout .dados {
+  min-width: 48px;
+  height: 48px;
+  /* Na teoria é min-height, mas o CSS é meio estranho */
+  background: #fdefef;
+}
+/* Relativos ao drag ********************************/
+.drag-container * {
+  /*cursor: default;*/
+}
+.drag-container.dragging *,
+.drag-container .drag {
+  cursor: pointer;
+}
+.no-cabecalho,
+.no-cabecalho.drop:hover {
+  background: #d7e6f4;
+}
+.no-cabecalho.drag:hover {
+  background-color: #c8ecc2;
+}
+.na-coluna,
+.na-coluna.drop:hover {
+  background: #edf3f8;
+}
+.na-coluna.drag:hover {
+  background-color: #d8efd4;
+}
+.na-linha,
+.na-linha.drop:hover {
+  background: #f9f9f9;
+  /*background-color: rgb(255, 220, 220);*/
+}
+.na-linha.drag:hover {
+  background-color: #e1f3de;
+}

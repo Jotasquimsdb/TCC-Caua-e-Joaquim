@@ -1,0 +1,28 @@
+﻿.panel-contato {
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.form-contato {
+  position: relative;
+}
+.validation-error {
+  display: block;
+  color: #c40a0a;
+  font-size: 12px;
+  margin: 7px 0;
+}
+.form-error {
+  color: #c40a0a;
+  display: none;
+}
+.contato-sucesso {
+  display: none;
+  width: 100%;
+}
+.contato-sucesso h4 {
+  display: table-cell;
+  text-align: center;
+  vertical-align: middle;
+  height: 200px;
+}

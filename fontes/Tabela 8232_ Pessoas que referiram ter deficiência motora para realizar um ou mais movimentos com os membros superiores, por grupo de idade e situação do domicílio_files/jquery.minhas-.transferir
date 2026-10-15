@@ -1,0 +1,522 @@
+﻿function MinhasTabelasView() {
+
+}
+
+$.extend(MinhasTabelasView.prototype, {
+    _defaults: {
+        'default-class': 'minhas-tabelas',
+        'values': {},
+        'metadados': {},
+        'reload': true
+    },
+
+    options: {},
+
+    propertyName: 'optionsMinhasTabelasView',
+    markerClassName: 'minhas-tabelas-start',
+
+    _attachPlugin: function (target, options, idtabela, flow) {
+        // extende as opcoes padrão
+        options = $.extend({}, this._defaults, options);
+        target.data('options', options);
+        target.data('idTabela', idTabela);
+        this._salvarDataflows(target, idTabela, flow);
+        target.addClass("loaded");
+        return target;
+    },
+    _getData: function (objTarget, idTabela, flow) {
+        $(objTarget).loading("Obtendo Dados ...");
+        objthis = this
+        var url = "/perfil/Quadros/Buscar?idTabela=" + idTabela + "&palavras=" + flow["palavras"] + "&page=" + flow["page"];
+        $.ajax({
+            type: "POST",
+            url: url
+        }).fail(function () {
+            $(objTarget).loading("close");
+            bootbox.alert("Falha ao recupar dados");
+        }).done(function (dados) {
+
+            var options = objTarget.data('options');
+            options['dataflows'] = jQuery.parseJSON(dados)["tabelasresposta"];
+            options['acoesusuario'] = jQuery.parseJSON(dados)["acoesusuario"];
+            options["numeroPagina"] = jQuery.parseJSON(dados)["numeroPagina"];
+            options["numeroPages"] = jQuery.parseJSON(dados)["numeroPages"];
+            options["numeroAcoesQuadro"] = jQuery.parseJSON(dados)["numeroAcoesQuadro"];
+
+            objthis._startField(objTarget, idTabela);
+
+
+            $(objTarget).loading("close");
+            if (jQuery.parseJSON(dados)["tabelasresposta"].length != 0) {
+                objthis._startSearch();
+            } else {
+                $(objTarget).addClass("no-data")
+
+                $div = $("<div>").css({
+                    "text-align": "center",
+                    "padding": 12
+                })
+
+                $("<h4>")
+                    .css("font-size", "1em")
+                    .html("Não há quadros públicos para essa tabela. Você pode salvar algum quadro e disponibilizá-lo para uso público.")
+                    .appendTo($div)
+
+                $div.appendTo($(objTarget))
+            }
+
+
+        });
+
+    },
+
+    _startSearch: function () {
+        $search.removeClass("hidden").show();
+    },
+
+    _buscaPalavras: function (evt) {
+        clearTimeout(timeoutID);
+        timeoutID = setTimeout(findMember.bind(undefined, evt.target.value), 500);
+    },
+    _salvarDataflows: function (objTarget, idTabela, flow) {
+
+        var options = objTarget.data('options');
+        this._getData(objTarget, idTabela, flow);
+    },
+
+    _startField: function ($target, idTabela) {
+        var options = $target.data('options');
+
+
+        $target.addClass("minhas-tabelas");
+
+        var $modalDialog = $("<div>").addClass("table-users-minhas-tabelas").appendTo($target);
+
+        var $modalContent = $("<table>").addClass("minhas-tabelas").attr("cellspacing", "0").appendTo($modalDialog);
+        var $div = $("<div>")
+        var $pagination = $("<ul>").addClass("pagination").appendTo($div);
+        $($div).css({ "text-align": "center" }).appendTo($modalDialog)
+        var active_class = "";
+        for (var j = 0; j < options["numeroPages"]; j++) {
+            active_class = "";
+            $li = $("<li>")
+            if (j + 1 == options["numeroPagina"]) {
+                active_class = "active";
+            }
+            $("<a>").addClass("pagination-minhas-tabelas").attr("href", "#").attr("page", j + 1).html(j + 1).on("click", {
+                objThis: this,
+                page: j + 1,
+                idTabela: idTabela
+            }, this._mudarPagina).appendTo($li)
+            $li.addClass(active_class).appendTo($pagination)
+        }
+
+        // Header
+
+
+        this._startBody($target, $modalContent);
+    },
+
+    _mudarPagina: function (evt) {
+        page = evt.data["page"];
+        idTabela = evt.data["idTabela"];
+        var flow = { controller: "dataflows", page: page, palavras: $("#search-palavras-minhas-tabelas").val() }
+        $("#minhastabelas").empty();
+        $("#minhastabelas").MinhasTabelasView({
+        }, idTabela, flow);
+    },
+
+    _startBody: function (target, $body) {
+        debugger;
+        var curtidas = {}
+        var options = target.data('options');
+        var class_like = "";
+        var class_dislike = "";
+        var class_denuncia = "";
+        var likes = [], dislikes = [], denuncias = [];
+        for (var j = 0; j < options["acoesusuario"].length; j++) {
+            console.log(options["acoesusuario"][j])
+            if (options["acoesusuario"][j]["Tipo"] == "like") {
+                likes[j] = options["acoesusuario"][j]["IdQuadroUsuario"]
+            } else if (options["acoesusuario"][j]["Tipo"] == "dislike") {
+                dislikes[j] = options["acoesusuario"][j]["IdQuadroUsuario"]
+            } else if (options["acoesusuario"][j]["Tipo"] == "denuncia") {
+                denuncias[j] = options["acoesusuario"][j]["IdQuadroUsuario"]
+            }
+        }
+        for (var j = 0; j < options["numeroAcoesQuadro"].length; j++) {
+
+            curtidas[[options["numeroAcoesQuadro"][j]["IdQuadroUsuario"], options["numeroAcoesQuadro"][j]["Tipo"]]] = options["numeroAcoesQuadro"][j]["cnt"]
+
+        }
+
+
+        var values = options['values'];
+        var tipoDataFlow = options['tipo-dataflow'];
+        for (var i = 0; i < options["dataflows"].length; i++) {
+            class_like = "";
+            class_dislike = "";
+            class_denuncia = "";
+            var IdQuadroUsuario = options["dataflows"][i]["Id"]
+            var $TrBody = $("<tr>").addClass("minhas-tabelas").appendTo($body);
+            var usuario = options["dataflows"][i]["NomeUsuario"]
+            var iniciais = getInitials(usuario);
+            var consulta = options["dataflows"][i]["Nome"];
+            var urlTabela = options["dataflows"][i]["UrlTabela"];
+            var ordem = options["dataflows"][i]["Ordem"]
+            var color_like = "grey";
+            var color_dislike = "grey";
+            var color_denuncia = "grey";
+            var idUsuario = options["dataflows"][i]["IdUsuario"]
+
+            $imageTd = $("<td>").addClass("minhas-tabelas  hidden-xs").appendTo($TrBody);
+            $("<div>").addClass("round-sigla-minhas-tabelas").css({ "background-color": colors[i % size_colors] }).html(iniciais).appendTo($imageTd)
+            /*$("<td>").addClass("minhas-tabelas hidden-xs").html(idUsuario + "Q" + ordem).appendTo($TrBody);*/
+            debugger;
+            $("<td>").addClass("minhas-tabelas hidden-xs").html(options["dataflows"][i]["Id"]).appendTo($TrBody);
+            $td = $("<td>")
+            $divConteudo = $("<div>").addClass("nome-quadro-minhas-tabelas")
+            $("<a>").addClass("minhas-tabelas").addClass("cursor-pointer").attr("href", urlTabela + "/resultado").html(consulta).appendTo($divConteudo)
+            $divConteudo.appendTo($td)
+            $td.addClass("minhas-tabelas").appendTo($TrBody);
+
+            curtidas[[IdQuadroUsuario, "like"]] = curtidas[[IdQuadroUsuario, "like"]] || 0
+            curtidas[[IdQuadroUsuario, "dislike"]] = curtidas[[IdQuadroUsuario, "dislike"]] || 0
+            curtidas[[IdQuadroUsuario, "denuncia"]] = curtidas[[IdQuadroUsuario, "denuncia"]] || 0
+
+            var $spangroup = $("<td>")
+                .addClass("minhas-tabelas")
+                //.css("white-space", "nowrap");
+
+            if (isInArray(likes, IdQuadroUsuario)) {
+                color_like = "green";
+                class_like = "like";
+            }
+            if (isInArray(dislikes, IdQuadroUsuario)) {
+                color_dislike = "red";
+                class_dislike = "dislike";
+            }
+            if (isInArray(denuncias, IdQuadroUsuario)) {
+                color_denuncia = "#bd1f1f";
+                class_denuncia = "denuncia";
+            }
+            $("<a>").addClass("glyphicon glyphicon-thumbs-up").addClass("cursor-pointer").attr("data-toggle", "tooltip").attr("title", "Curtir").addClass(class_like).attr("id", "like-tabela-resposta-" + IdQuadroUsuario).html("<span style='font-size:10px;'>" + curtidas[[IdQuadroUsuario, "like"]] + "</span>").css({ "color": color_like, "margin": "5px" }).on("click", {
+                objThis: this,
+                objTarget: target,
+                IdQuadroUsuario: IdQuadroUsuario,
+                id: "like-tabela-resposta-" + IdQuadroUsuario,
+                tipo: "like"
+            }, this._LikeButtonClick).appendTo($spangroup)
+            $("<a>").attr("data-toggle", "tooltip").addClass("cursor-pointer").attr("title", "Não curtir").addClass("glyphicon glyphicon-thumbs-down").addClass(class_dislike).attr("id", "dislike-tabela-resposta-" + IdQuadroUsuario).html("<span style='font-size:10px;'>" + curtidas[[IdQuadroUsuario, "dislike"]] + "</span>").css({ "color": color_dislike, "margin": "5px" }).on("click", {
+                objThis: this,
+                objTarget: target,
+                IdQuadroUsuario: IdQuadroUsuario,
+                id: "dislike-tabela-resposta-" + IdQuadroUsuario,
+                tipo: "dislike"
+            }, this._LikeButtonClick).appendTo($spangroup)
+
+            $("<a>").attr("data-toggle", "tooltip").addClass("cursor-pointer").attr("title", "Visualizar Quadro").addClass("glyphicon glyphicon-share-alt").attr("target", "_blank").attr("href", urlTabela + "/resultado").css({ "color": "#00abff", "margin": "5px" }).appendTo($spangroup)
+            $("<a>").attr("data-toggle", "tooltip").addClass("cursor-pointer").attr("title", "Denunciar").addClass("glyphicon glyphicon-flag").addClass(class_denuncia).attr("id", "denuncia-tabela-resposta-" + IdQuadroUsuario).html("<span style='font-size:10px;'>" + curtidas[[IdQuadroUsuario, "denuncia"]] + "</span>").css({ "color": color_denuncia, "margin": "5px" }).appendTo($spangroup).on("click", {
+                objThis: this,
+                objTarget: target,
+                IdQuadroUsuario: IdQuadroUsuario,
+                id: "denuncia-tabela-resposta-" + IdQuadroUsuario,
+                tipo: "denuncia"
+            }, this._LikeButtonClick).appendTo($spangroup)
+
+            $template = $("<div>").addClass("popover").attr("role", "tooltip")
+            $("<h3>").addClass("popover-title").html("Título").appendTo($template)
+            $("<div>").addClass("popover-content").html("Conteúdo").appendTo($template)
+            $spangroup.appendTo($TrBody);
+
+            $popOverButtons = $("<div>")
+            $downloadButton = $("<a>").attr("href", "#download-quadro-editor-" + IdQuadroUsuario).addClass("popover-minhas-tabelas download-quadro-editor").attr("id", "download-quadro-editor-" + IdQuadroUsuario).addClass("btn btn-green-sucess").html("Download").attr("onclick", "showModal('" + urlTabela + "')");
+
+            $downloadButton.appendTo($popOverButtons)
+            $column = $("<td>").addClass("popover-minhas-tabelas-editor minhas-tabelas").appendTo($TrBody);
+
+            $compartilhar = $("<div>").css({ "text-align": "center" })
+            $("<h4>").text("Compartilhar").appendTo($compartilhar)
+
+
+            $facebook = $("<a>").addClass("cursor-pointer").attr("data-action", "Facebook").attr("redirect", urlTabela + "/resultado").attr("title", "Compartilhar no Facebook").attr("id", "facebook-share-" + IdQuadroUsuario).attr("onclick", "shareFacebook('" + "facebook-share-" + IdQuadroUsuario + "')")
+            $("<img>").addClass("icon-rede img-share-meu-quadro").attr("src", "/Content/imagens/login/facebook.png").appendTo($facebook)
+
+            $twitter = $("<a>").attr("data-action", "Twitter").addClass("cursor-pointer").attr("urlTabela", urlTabela).attr("id", "twitter-share-" + IdQuadroUsuario).addClass("twitter-share").attr("target", "_blank").attr("title", "Compartilhar no Twitter").attr("onclick", "shareTwitter('" + "twitter-share-" + IdQuadroUsuario + "')")
+            $("<img>").addClass("icon-rede img-share-meu-quadro").attr("src", "/Content/imagens/login/twitter.png").appendTo($twitter)
+
+            $facebook.appendTo($compartilhar)
+            $twitter.appendTo($compartilhar)
+            $compartilhar.appendTo($popOverButtons)
+            $divPopover = $("<div>")
+
+            $buttonPopover = $("<button>").attr("id", "button-popover-minhas-tabelas-" + IdQuadroUsuario).attr("type", "button").attr("onclick", "closePopover('" + "mais-minhas-tabelas-editor-" + IdQuadroUsuario + "')").addClass("close").html("&times").appendTo($divPopover)
+            $tituloPopover = $("<h5>").addClass("modal-title").text("Ações").appendTo($divPopover)
+
+
+            $("<a>").addClass("cursor-pointer").addClass("glyphicon glyphicon-plus").attr("data-toggle", "popover").attr("data-placement", "auto top").attr("id", "mais-minhas-tabelas-editor-" + IdQuadroUsuario).attr("data-html", true).attr("data-trigger", "manual").attr("title", $divPopover.prop('outerHTML')).attr("data-content", $popOverButtons.prop('outerHTML')).on("click", { id: "#mais-minhas-tabelas-editor-" + IdQuadroUsuario }, function (evt) { if ($(evt.data.id).hasClass("close-popover")) { $(evt.data.id).popover('hide'); } else { $(evt.data.id).popover('show'); } $(evt.data.id).toggleClass("close-popover") }).appendTo($column)
+
+        }
+    },
+
+
+    _LikeButtonClick: function (evt) {
+        var objThis = evt.data.objThis;
+        var objTarget = evt.data.objTarget;
+        var options = objTarget.data('options');
+        var idTabela = objTarget.data('idTabela');
+        var tipoModal = options['tipo-dataflow'];
+        var tipo = evt.data.tipo;
+        var id_denuncia = evt.data.id.replace(tipo, "denuncia");
+        if ($("#" + id_denuncia).hasClass("denuncia") && tipo != "denuncia") {
+            bootbox.alert("Você sinalizou essa consulta, e por isso não é possível curtir/descutir");
+            return;
+        }
+
+        objthis = this;
+
+        if (tipo == "denuncia" && !$("#" + evt.data.id).hasClass("denuncia")) {
+            objThis._OpenModalDenuncia(evt.data.IdQuadroUsuario);
+            return;
+        }
+            
+        var url = "/perfil/Reacoes/Reagir?idQuadro=" + evt.data.IdQuadroUsuario + "&tipo=" + tipo;
+        $.ajax({
+            type: "POST",
+            url: url
+        }).fail(function () {
+
+        }).done(function (dados) {
+            if (dados["message"] == "nao logado") {
+                bootbox.confirm({
+                    title: "Usuário não Logado",
+                    message: "A funcionalidade de curtir/descurtir, salvar as consultas das tabelas, guardar seu histórico de acesso a elas só funciona se você tiver logado. Gostaria de logar? ",
+                    buttons: {
+                        cancel: {
+                            label: '<i class="fa fa-times"></i> Não'
+                        },
+                        confirm: {
+                            label: '<i class="fa fa-check"></i> Sim'
+                        }
+                    },
+                    callback: function (result) {
+                        if (result == true) {
+                            var win = window.open("/perfil/usuario/login", '_blank');
+                            win.focus();
+
+                        }
+                    }
+                });
+                return;
+            }
+            var id_like = evt.data.id.replace(tipo, "like");
+            var id_dislike = evt.data.id.replace(tipo, "dislike");
+            if (tipo == "like") {
+                if ($("#" + evt.data.id).hasClass("like")) {
+                    $("#" + evt.data.id).removeClass("like");
+                    $("#" + evt.data.id).css({ "color": "grey" });
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_likes = $span.text();
+                    $span.html(parseInt(nr_likes) - 1);
+                }
+                else {
+                    $("#" + evt.data.id).addClass("like");
+                    $("#" + evt.data.id).css({ "color": "green" });
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_likes = $span.text();
+                    $span.html(parseInt(nr_likes) + 1);
+                }
+                if ($("#" + id_dislike).hasClass("dislike")) {
+                    $span = $("#" + id_dislike).find("span");
+                    nr_dislikes = $span.text();
+                    $span.html(parseInt(nr_dislikes) - 1);
+                }
+                $("#" + evt.data.id).removeClass("dislike");
+                $("#" + id_dislike).css({ "color": "grey" });
+                $("#" + id_dislike).removeClass("dislike");
+
+            }
+            else if (tipo == "dislike") {
+                if ($("#" + evt.data.id).hasClass("dislike")) {
+                    $("#" + evt.data.id).removeClass("dislike");
+                    $("#" + evt.data.id).css({ "color": "grey" });
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_dislikes = $span.text();
+                    $span.html(parseInt(nr_dislikes) - 1);
+                }
+                else {
+                    $("#" + evt.data.id).addClass("dislike");
+                    $("#" + evt.data.id).css({ "color": "red" });
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_dislikes = $span.text();
+                    $span.html(parseInt(nr_dislikes) + 1);
+                }
+                if ($("#" + id_like).hasClass("like")) {
+                    $span = $("#" + id_like).find("span");
+                    nr_likes = $span.text();
+                    $span.html(parseInt(nr_likes) - 1);
+                }
+                $("#" + evt.data.id).removeClass("like");
+                $("#" + id_like).css({ "color": "grey" });
+                $("#" + id_like).removeClass("like");
+
+            }
+            else if (tipo == "denuncia") {
+                if ($("#" + evt.data.id).hasClass("denuncia")) {
+                    $("#" + evt.data.id).removeClass("denuncia");
+                    $("#" + evt.data.id).css({ "color": "grey" });
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_denuncia = $span.text();
+                    $span.html(parseInt(nr_denuncia) - 1);
+                }
+                else {
+                    alert('nunca deveria entrar aqui');
+                    $("#" + evt.data.id).addClass("denuncia");
+                    $("#" + evt.data.id).css({ "color": "#bd1f1f" });
+                    //objThis._OpenModalDenuncia(evt.data.IdQuadroUsuario);
+                    $span = $("#" + evt.data.id).find("span");
+                    nr_denuncia = $span.text();
+                    $span.html(parseInt(nr_denuncia) + 1);
+                }
+                //if ($("#" + id_dislike).hasClass("dislike")) {
+                //    $span = $("#" + id_dislike).find("span")
+                //    nr_dislikes = $span.text()
+                //    $span.html(parseInt(nr_dislikes) - 1)
+                //}
+                //if ($("#" + id_like).hasClass("like")) {
+                //    $span = $("#" + id_like).find("span")
+                //    nr_likes = $span.text()
+                //    $span.html(parseInt(nr_likes) - 1)
+                //}
+                //$("#" + id_dislike).removeClass("dislike");
+                //$("#" + id_like).removeClass("like");
+                //$("#" + id_like).css({ "color": "grey" });
+                //$("#" + id_dislike).css({ "color": "grey" });
+            }
+        });
+    },
+    _OpenModalDenuncia: function (id) {
+        $("#denunciar-quadro-botao").attr("id-quadro-denuncia", id);
+        $("#modal-denuncia-quadro").modal("show");
+        $("#denunciar-quadro-motivo").val('Descrição do quadro não o caracteriza');
+
+    }
+
+});
+
+
+$.fn.MinhasTabelasView = function (options, idTabela, flow) {
+    pluginMinhasTabelasView._attachPlugin(this, options || {}, idTabela, flow);
+    return this;
+};
+
+var pluginMinhasTabelasView = $.MinhasTabelasView = new MinhasTabelasView();
+var colors = ["#9e393d", "#47cbff", "#6d47ff", "#9e8e39"];
+var size_colors = 4;
+var timeoutID = null;
+
+var getInitials = function (string) {
+    var names = string.split(' '),
+        initials = names[0].substring(0, 1).toUpperCase();
+
+    if (names.length > 1) {
+        initials += names[names.length - 1].substring(0, 1).toUpperCase();
+    }
+    return initials;
+};
+
+var $search = $("#search-bar-minhas-tabelas")
+
+function isInArray(array, search) {
+    return array.indexOf(search) >= 0;
+}
+
+
+function findMember(str) {
+    $("#minhastabelas").empty();
+    var flow = { controller: "search", palavras: $("#search-palavras-minhas-tabelas").val() }
+    $("#minhastabelas").MinhasTabelasView({
+    }, idTabela, flow);
+}
+
+/*
+$('#modal-denuncia-quadro').on('hidden.bs.modal', function (e) {
+    
+    debugger;
+    id = $("#denunciar-quadro-botao").attr("id-quadro-denuncia")
+    if (!$("#denunciar-quadro-botao").hasClass("denunciado")) {
+        var url = "/perfil/Reacoes/Reagir?idQuadro=" + id + "&tipo=" + "denuncia";
+        $.ajax({
+            type: "POST",
+            url: url
+        }).fail(function () {
+
+        }).done(function (dados) {
+            $("#denuncia-tabela-resposta-" + id).removeClass("denuncia");
+            $("#denuncia-tabela-resposta-" + id).css({ "color": "grey" });
+            $span = $("#denuncia-tabela-resposta-" + id).find("span")
+            nr_denuncia = $span.text()
+            $span.html(parseInt(nr_denuncia) - 1)
+
+        })
+    }
+    $("#denunciar-quadro-botao").removeClass("denunciado")
+  
+})
+*/
+
+$("#limpar-quadro-botao").on("click", function () {
+    $("#denunciar-quadro-motivo").val('');
+});
+
+$("#denunciar-quadro-botao").on("click", function () {
+    debugger;
+    if ($("#denunciar-quadro-motivo").val().replace(/\s/g, '') == "") {
+        bootbox.alert("O preenchimento do campo motivo é obrigatório.");
+        $("#denunciar-quadro-motivo").val($("#denunciar-quadro-motivo").val().replace(/\s/g, ''));
+        return;
+    }        
+
+    motivo = $("#denunciar-quadro-motivo").val();
+    id = $(this).attr("id-quadro-denuncia");
+    objthis = this;
+
+    var url = "/perfil/Reacoes/denunciar?Id=" + id + "&motivo=" + motivo;
+
+    $.ajax({
+        type: "POST",
+        url: url
+    }).fail(function () {
+        $("#modal-denuncia-quadro").modal("hide")
+        bootbox.alert("Não foi possível registrar o motivo da denúncia.")
+    }).done(function (dados) {
+        if (JSON.parse(dados).resposta != "Sucesso")
+            bootbox.alert(JSON.parse(dados).resposta);
+        else {
+            $("#denuncia-tabela-resposta-" + id).addClass("denuncia");
+            $("#denuncia-tabela-resposta-" + id).css({ "color": "#bd1f1f" });
+            $span = $("#denuncia-tabela-resposta-" + id).find("span");
+            nr_denuncia = $span.text();
+            $span.html(parseInt(nr_denuncia) + 1);
+
+            if ($("#dislike-tabela-resposta-" + id).hasClass("dislike")) {
+                $span = $("#dislike-tabela-resposta-" + id).find("span")
+                nr_dislikes = $span.text()
+                $span.html(parseInt(nr_dislikes) - 1)
+            }
+            if ($("#like-tabela-resposta-" + id).hasClass("like")) {
+                $span = $("#like-tabela-resposta-" + id).find("span")
+                nr_likes = $span.text()
+                $span.html(parseInt(nr_likes) - 1)
+            }
+            $("#dislike-tabela-resposta-" + id).removeClass("dislike");
+            $("#dislike-tabela-resposta-" + id).css({ "color": "grey" });
+            $("#like-tabela-resposta-" + id).removeClass("like");
+            $("#like-tabela-resposta-" + id).css({ "color": "grey" });            
+
+            $("#modal-denuncia-quadro").modal("hide");
+
+            bootbox.alert("Denúncia registrada com sucesso.");
+        }
+    });
+});

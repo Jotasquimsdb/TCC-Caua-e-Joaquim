@@ -1,0 +1,29 @@
+﻿function registrarAcesso(idTabela) {
+    $.ajax({
+        type: "POST",
+        url: "/acesso/registrarAcesso?idTabela=" + idTabela
+    }).fail(function () {
+      
+    }).done(function () {     
+    })
+}
+
+ $(".registrar-acesso").on("click", function () {
+   
+     if (cacheConsulta != null) {
+        return 
+     }
+    $.ajax({
+        type: "POST",
+        url: "/acesso/registrarAcesso?idTabela=" + idTabela
+    }).fail(function () {
+      
+    }).done(function () {
+        
+    })
+
+
+ })
+
+
+

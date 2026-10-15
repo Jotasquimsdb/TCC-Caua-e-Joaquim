@@ -1,0 +1,1107 @@
+﻿// self-executing anonymous function
+(function (UI, $, undef) {
+    var SPLITTER_FIELD = "pluginSplitter";
+    var DRAGNDROP_FIELD = "pluginDragNDrop";
+
+    //
+    var uniqueId = 1000;
+
+    // mobile detection from "http://stackoverflow.com/questions/3514784/what-is-the-best-way-to-detect-a-mobile-device-in-jquery"
+    var isMobile = (/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|ipad|iris|kindle|Android|Silk|lge |maemo|midp|mmp|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows (ce|phone)|xda|xiino/i.test(navigator.userAgent)
+        || /1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(navigator.userAgent.substr(0, 4)));
+    // touch button ID
+    var BTN_TOUCH = 10;
+    // remember if browser can "addEventListener" (for < IE8)
+    UI.canAddListener = (!!document.addEventListener);
+    //
+    UI.initialized = false;
+    UI.currID = 9000;           // internal ID key for internal purposes
+    UI.cursorCurrent = null;    // current cursor event (when dealing with click interaction)
+    UI.resizeListeners = [];    // listeners for resize operations
+    //
+    var resizeField = "__resize";
+
+    UI.hasTouch = function () {
+        // verifica se existe touch events 
+        var has = (typeof TouchEvent !== "undefined");
+        // cache result
+        UI.hasTouch = function () { return has };
+        return has;
+    }
+
+    if (!$.ui)
+        $.ui = {};
+
+    $.ui.toBottom = function () {
+        $("html,body").animate({ scrollTop: $(document).height() - $(window).height() });
+    }
+
+    // generic interface methods ******************************************************************
+    UI.hover = function (target, callback) {
+        var DATA = "__UI_HOVER";
+        var options = {
+            "queue": [],
+            "last": null,
+            "callback": callback
+        };
+        target = $(target);
+        $.data(target[0], DATA, options);
+        //
+        var clearQueue = function (options) {
+            while (options.queue.length)
+                options.callback({
+                    "target": options.queue.shift(),
+                    "type": "hover-out"
+                });
+        };
+        var hover = function (e) {
+            e = UI.fix(e || window.event);
+            var options = $.data(e.delegateTarget, DATA);
+            if (e.which !== BTN_TOUCH || e.target !== options.last) {
+                clearQueue(options);
+                options.queue.push(options.last = e.target);
+                if (e.type !== "mouseout") {
+                    return options.callback({
+                        "target": e.target,
+                        "type": "hover-in"
+                    });
+                }
+            }
+        }
+        // bind events
+        target.mouseover(hover);
+        target.mouseout(hover);
+        //
+        if (UI.hasTouch() && UI.canAddListener) {
+            target[0].addEventListener("touchstart", hover);
+            target[0].addEventListener("touchmove", hover);
+        }
+    }
+
+    // ********************************************************************************************
+    // RESIZE LISTENER METHODS ********************************************************************
+    // ********************************************************************************************
+
+    var resizeRoot = null;
+
+    function ResizeHandler(target) {
+        this.initialize(target);
+    }
+
+    function ResizeListener(options) {
+        this.initialize(options);
+    }
+
+    $.extend(ResizeHandler.prototype, {
+        initialize: function (target) {
+            this.id = uniqueId++;
+            this.stopped = false;
+            this.valid = true;
+            this.force = false;
+            //
+            this.target = target;
+            this.width = target.width();
+            this.height = target.height();
+            this.listeners = [];
+            //
+            this.target.data(resizeField, this);
+            //
+            //console.log("[HANDLER:" + this.id + "] created: " + target.attr("id"))
+            //console.log(target[0])
+        },
+        addListenerAsync: function (listener) {
+            //console.log("[HANDLER:" + this.id + "] add ", listener.id)
+            // update listener handler and insert into list
+            listener.handler = this;
+            this.listeners.push(listener);
+            // force refresh
+            this._refresh();
+        },
+        removeAsync: function () {
+            //console.log("[HANDLER:" + this.id + "] removing all listeners.")
+            this.target.removeData(resizeField);
+            this.valid = false;
+            this.listeners = null;
+            this.target = null;
+        },
+        _refresh: function () {
+            // request a new forced refresh
+            this.force = true;
+            var that = this;
+            setTimeout(function () {
+                that.now();
+            }, 0);
+        },
+        _resize: function (listener) {
+            if (!listener.valid || !listener.onResize)
+                return false;
+            try {
+                if (!listener.paused)
+                    listener.onResize.call(listener.context, this.width, this.height, this.target);
+            }
+            catch (e) {
+                exception(e);
+            }
+            return true;
+        },
+        //
+        resume: function (forced) {
+            this.stopped = false;
+            this.now(forced);
+        },
+        stop: function () {
+            this.stopped = true;
+        },
+        now: function (forcedListener) {
+            // check if handler is stopped or invalid
+            if (this.stopped || !this.valid)
+                return;
+            // get element size 
+            var width = this.target.width();
+            var height = this.target.height();
+            var changed = (this.force || width != this.width || height != this.height);
+            // check if size changed
+            if (forcedListener || changed) {
+                // save new dimensions
+                this.force = false;
+                this.width = width;
+                this.height = height;
+                // execute callbacks for this element
+                var list = this.listeners;
+                var removed = null; // will list removed listeners
+                for (var i = list.length; i--;) {
+                    var listener = list[i];
+                    if ((changed || forcedListener.id == listener.id) && !this._resize(listener)) {
+                        // if listener is invalid, mark it for removal
+                        removed = (removed || []); // create list only in the first removal
+                        removed.push(i);
+                    }
+                }
+                // process removals, if any
+                if (removed)
+                    this._removeListeners(removed);
+            }
+        },
+        //
+        _removeListeners: function (removed) {
+            // if all listeners were removed, request for removal of handler
+            var list = this.listeners;
+            if (removed.length == list.length) {
+                this.valid = false;
+                this.listeners = [];
+            }
+            else {
+                // else, remove listed listeners (the order is important!)
+                for (var i = 0; i < removed.length; i++) {
+                    var index = removed[i];
+                    var last = list.pop();
+                    if (index < list.length)
+                        list[index] = last;
+                }
+            }
+        }
+    });
+
+    $.extend(ResizeListener.prototype, {
+        initialize: function (options) {
+            this.handler = null;
+            this.valid = true;
+            // process options
+            this.element = (options.target || $(window));
+            this.context = (options.context || this.element);
+            this.onResize = functionOrNull(options.onResize);
+            this.paused = (options.paused == true);
+            // asynchronous initialization
+            var that = this;
+            setTimeout(function () {
+                that._initAsync();
+            }, 0);
+        },
+        //
+        _initAsync: function () {
+            // add listener to element handler
+            var handler = getOrCreateResizeHandlerAsync(this.element);
+            // create a uniqueId (async, to avoid concurrency)
+            this.id = uniqueId++;
+            handler.addListenerAsync(this);
+        },
+        now: function (force) {
+            force = (force && this); // if force is true, set as this
+            this._handlerCall("now", force);
+        },
+        resume: function (force) {
+            force = (force && this); // if force is true, set as this
+            this.paused = false;
+            this._handlerCall("resume", force);
+        },
+        stop: function () {
+            this.paused = true;
+            this._handlerCall("stop");
+        },
+        //
+        _handlerCall: function (method, param) {
+            // if handler is defined, call immediatly
+            if (this.handler)
+                return this.handler[method](param);
+            // if handler is not defined yet, it will be asynchronously. call by timeout
+            setTimeout(function () {
+                (this.handler && this.handler[method](param));
+            }, 0);
+        },
+        //
+        remove: function () {
+            // mark as invalid, so the handler can remove it
+            this.valid = false;
+        }
+    });
+
+    // UI.addResizeListener(options)
+    // UI.addResizeListener(callback, context)
+    // UI.addResizeListener(target, callback, context)
+    UI.addResizeListener = function (arg1, arg2, arg3) {
+        // if arg1 is a jquery object, set target and context (which can be undefined)
+        if (arg1 instanceof $)
+            return new ResizeListener({
+                target: arg1,
+                onResize: arg2,
+                context: arg3
+            });
+        // if it's an object, just pass it to constructor
+        if (typeof arg1 === "object")
+            return new ResizeListener(arg1);
+        // if first parameter is window resize a callback (no target defined)
+        if (typeof arg1 === "function")
+            return new ResizeListener({
+                onResize: arg1,
+                context: arg2
+            });
+        // invalid parameter configuration
+        exception("Invalid parameters for resize listener.");
+        return null;
+    }
+
+    // previne que outros resizes ocorram em paralelo 
+    function resizeSync() {
+        // lança o novo timeout
+        setTimeout(resizeAsync, 0);
+    };
+
+    function resizeAsync() {
+        // process resize listeners
+        var list = UI.resizeListeners;
+        var removed = null;
+        for (var i = list.length; i--;) {
+            var handler = list[i];
+            // only call if handler is valid
+            if (handler.valid)
+                handler.now();
+            // if handler is invalid (could have changed from "now" execution), mark it for removal
+            if (!handler.valid) {
+                //console.log("[UI] removing handler " + handler.id)
+                removed = (removed || []); // create only on first removal
+                removed.push(i);
+            }
+        }
+        // if there is no handler to be removed, return 
+        if (!removed)
+            return;
+        // else, remove the listed handlers
+        for (var i = 0; i < removed.length; i++) { // the order is important!
+            // remove it from list
+            var index = removed[i];
+            var handler = list[index];
+            var last = list.pop();
+            if (index < list.length)
+                list[index] = last;
+            // call it's removal procedure
+            handler.removeAsync();
+        }
+    }
+
+    function getResizeHandler(target) {
+        return (target.data(resizeField) || null);
+    }
+
+    function getOrCreateResizeHandlerAsync(target) {
+        // if target doesn't have a handler yet, create one
+        var handler = target.data(resizeField);
+        if (!handler) {
+            handler = new ResizeHandler(target);
+            UI.resizeListeners.push(handler);
+        }
+        return handler;
+    };
+
+    UI.removeAllResizeListeners = function (target) {
+        setTimeout(function () { removeAllResizeAsync(target); }, 0);
+    };
+
+    // remove all resize listeners from an element
+    function removeAllResizeAsync(target) {
+        // if no target is defined, remove ALL handlers
+        var handlers = (target ? [target.data(resizeField)] : UI.resizeListeners)
+        while (handlers.length)
+            handlers.pop().removeAsync();
+    }
+
+    // ***************************************************************************************************************
+
+    var DEFAULTS = {
+        "selector": "",
+        "data": null,
+        "onDouble": null,
+        "onDown": null,
+        "onUp": null,
+        "onMove": null,
+        "smooth": true,
+        "touch": true
+    };
+
+    // remove qualquer seleção de texto que exista na página
+    // obtida em http://stackoverflow.com/questions/3169786/clear-text-selection-with-javascript
+    $.ui.emptySelection = function () {
+        try {
+            if (window.getSelection) {
+                if (window.getSelection().empty) {  // Chrome
+                    window.getSelection().empty();
+                } else if (window.getSelection().removeAllRanges) {  // Firefox
+                    window.getSelection().removeAllRanges();
+                }
+            } else if (document.selection) {  // IE?
+                document.selection.empty();
+            }
+        }
+        catch (e) { };
+    }
+
+    // no window.load, inicializa a lib e os handlers de window
+    $(window).on("load", function () {
+        // desabilita o backspace no documento para qualquer coisa que não seja input ou textarea
+        // (evita que o usuário dê "voltar" na página sem querer)
+        var body = document.body;
+        eventListen(body, "keydown", processBackspace);
+
+        // add event listeners
+        var useTouch = (UI.hasTouch() && UI.canAddListener);
+        var upEvents = "mouseup" + (useTouch ? " touchend touchcancel" : "");
+        var moveEvents = "mousemove" + (useTouch ? " touchmove" : "");
+        //
+        eventListen(body, upEvents, windowUp);
+        eventListen(body, moveEvents, windowMove);
+        eventListen(window, "resize", resizeSync);
+
+        // define um intervalo de checagem de resize (em alguns casos, principalmente em mobile, o "onresize" não é lançado corretamente)
+        setInterval(resizeAsync, 2000); // every two seconds
+        //
+        UI.initialized = true;
+    });
+
+    var KEY_BACKSPACE = 8;
+
+    function processBackspace(e) {
+        // fix event and get target tag name
+        e = (e || window.event);
+        // check condition and abort default behaviour if true
+        if (e.which == KEY_BACKSPACE) {
+            var tag = e.target.nodeName.toLowerCase();
+            if (tag !== 'input' && tag !== 'textarea' && !e.target.contentEditable) {
+                if (e.preventDefault)
+                    e.preventDefault();
+                return (e.returnValue = false);
+            }
+        }
+    }
+
+    // previne que o browser inicie uma seleção de texto
+    function disableTextSelection() {
+        document.body.onselectstart = function () { return false; }
+        $("body").addClass("no-select");
+    }
+
+    // habilita a seleção de texto
+    function enableTextSelection() {
+        document.body.onselectstart = null;
+        $("body").removeClass("no-select");
+    }
+
+    // set a handler as window current handler
+    function setCurrent(handler) {
+        // checa se existe algum evento de cursor atualmente em execução
+        if (UI.cursorCurrent) {
+            // se existir, pará-lo sem reabilitar a seleção de texto
+            stopCurrent(false);
+        }
+        else {
+            // senão, desabilita a seleção de texto
+            disableTextSelection();
+        }
+        //
+        UI.cursorCurrent = handler;
+        // if a custom cursor is defined, set it
+        if (handler.cursor)
+            $("body").css("cursor", handler.cursor);
+    }
+
+    // termina o evento de cursor atual
+    function stopCurrent(reenableSelect) {
+        var handler = UI.cursorCurrent;
+        if (handler) {
+            //console.log("stop-current");
+            // se o handler for startOnDown, retirar seu listener
+            if (handler.startOnDown)
+                removeListener(handler);
+            // se onUp estiver definido, chamá-lo
+            if (handler.onUp)
+                handler.onUp.call(handler.selected, handler.data);
+            //
+            handler.selected = null;
+            UI.cursorCurrent = null;
+        }
+        // se requisitado, reabilita a seleção de texto
+        if (reenableSelect)
+            enableTextSelection();
+        // reinicializa o cursor do body
+        $("body").css("cursor", "");
+    }
+
+    // insere o listener de move no container de um handler
+    function addListener(handler) {
+        //console.log("add-listener");
+        // insere o listener na lista correta (smooth ou não smooth)
+        var list = handler.manager[handler.smooth ? "smooth" : "nonsmooth"];
+        list[handler.id] = handler;
+        list.length++;
+    }
+
+    // remove o listener de move do container de um handler
+    function removeListener(handler) {
+        //console.log("remove-listener");
+        // identifica a lista correta e pega o handler
+        var list = handler.manager[handler.smooth ? "smooth" : "nonsmooth"];
+        var handler = list[handler.id];
+        if (handler) {
+            // se existir, remover o elemento da lista
+            delete list[handler.id];
+            list.length--;
+        }
+    }
+
+    // inicializa os handlers de um container, criando o manager se não existir
+    function setupEventHandler(options, handler) {
+        // extende o handler e chama o método assíncrono (para evitar concorrência)
+        handler = $.extend({}, DEFAULTS, options, handler);
+        setTimeout(function () { setupEventHandlerAsync(handler) }, 0);
+    }
+
+    // procedimento assincrono referente ao método acima
+    function setupEventHandlerAsync(handler) {
+        // se a biblioteca ainda não estiver inicializada, posterga a inicialização do handler
+        // MEIO MERDA. DEPOIS IMPLEMENTAR UMA FILA DE ESPERA BONITINHA *****************************************
+        if (!UI.initialized) {
+            setTimeout(function () { setupEventHandlerAsync(handler) }, 100);
+            return;
+        }
+        // verifica se o container já possui uma fila de listeners
+        var handlerManager = handler.element.data("__UI");
+        if (!handlerManager) {
+            // se não estiver definido, cria o gerenciador e seta os eventos de move
+            handlerManager = {
+                element: handler.element,
+                smooth: { length: 0 },
+                nonsmooth: { length: 0 }
+            };
+            handler.element.data("__UI", handlerManager)
+            //    .on("mousemove touchmove", handlerManager, containerMove)   // DEPOIS INSERIR OS MOUSEENTER E BLAH ******************
+        }
+        // atribui o id único e seta o manager
+        handler.id = (UI.currID++);
+        handler.manager = handlerManager;
+        // define a quais elementos o container deve responder no down e seta o evento
+        events = "mousedown" + (UI.hasTouch() && handler.touch ? " touchstart" : "");
+        handler.element.on(events, handler.selector, handler, elementDown);
+        // se o elemento não for startOnDown, inserir o listener desde já
+        if (!handler.startOnDown)
+            addListener(handler);
+    }
+
+    function elementDown(e) {
+        //console.log("down-sync");
+        // ajusta os parâmetros do evento e verifica se possui um handler associado
+        e = UI.fix(e || window.event);
+        var handler = e.data;
+        if (handler) {
+            // pega o item alvo e o container do evento
+            var $item = $(e.currentTarget);
+            var $container = handler.element;
+            // se o onDown for definido, chamá-lo. (botei essa chamada sincrona pra eliminar o delay que estava 
+            // acontecendo, mas imagino que não dê problemas de concorrência porque o ID do handler ainda não foi
+            // setado, o que permite identificar e postergar conflitos caso um handler ainda não esteja inicializado)
+            var result = true;
+            if (handler.onDown) {
+                var offset = $container.offset();
+                result = handler.onDown.call($item, e.pageX - offset.left, e.pageY - offset.top, handler.data);
+            }
+            // only accept down if result is undefined or true
+            if (result !== false) {
+                handler.selected = $item;
+                handler.event = e;
+                // chama o down assincrono, pra não ter problemas com concorrencia
+                setTimeout(function () { elementDownAsync(handler) }, 0);
+                //
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }
+    }
+
+    function elementDownAsync(handler) {
+        //console.log("down-async");
+        setCurrent(handler);
+        // se o objeto for onStartDown, inserir o listener só agora
+        if (handler.startOnDown)
+            addListener(handler);
+    }
+
+    var moveDelay
+
+    function windowMove(e) {
+        if (UI.cursorCurrent) {
+            // ajusta os parâmetros do evento e verifica se possui um manager associado
+            e = UI.fix(e || window.event);
+            var manager = UI.cursorCurrent.manager;
+            // verifica se existe algum elemento na lista de espera "smooth"
+            if (manager && manager.smooth.length > 0) {
+                // corrige o evento e chama o procedimento assincrono
+                setTimeout(function () { windowMoveAsync(e, manager) }, 0);
+            }
+        }
+    }
+
+    function windowMoveAsync(e, manager) {
+        // pega as propriedades relevantes do evento
+        var offset = manager.element.offset();
+        var x = e.pageX - offset.left;
+        var y = e.pageY - offset.top;
+        // itera para cada listener
+        for (var id in manager.smooth) {
+            var handler = manager.smooth[id];
+            if (handler.onMove)
+                //handler.onMove.call((handler.selected || handler.element), x, y, handler.data);
+                handler.onMove.call(e.target, x, y, handler.data);
+        }
+    }
+
+    function windowUp(e) {
+        //console.log("up-sync");
+        //e = UI.fix(e || window.event);
+        setTimeout(function () { windowUpAsync() }, 0);
+    }
+
+    function windowUpAsync() {
+        //console.log("up-async");
+        // para o evento atualmente sendo executado
+        stopCurrent(true);
+    }
+
+    // inicia o drag de elementos em um container.
+    // parâmetros (options) ou (seletor,data,options)
+    $.fn.drag = function (arg1, arg2, arg3) {
+        // gera o objeto de opções de usuário
+        var options = (typeof arg1 !== "string"
+            ? (arg1 || {})
+            : $.extend(arg3 || {}, {
+                selector: arg1,
+                data: arg2
+            }));
+        // gera o objeto específico do handler
+        var handler = {
+            id: 0,
+            element: $(this),
+            event: null,
+            selected: false,
+            startOnDown: true
+        }
+        // chama a função de inicialização
+        setupEventHandler(options, handler);
+        // encadeamento de objeto
+        return $(this);
+    }
+
+    // ***************************************************************************************************************
+
+    // CLASSEDRAGNDROP
+    function DragNDrop(element, options) {
+        //
+        this.element = element;
+        element.data(DRAGNDROP_FIELD, this);
+        //
+        var defaults = {
+            "data": null,
+            "onDragStart": null,
+            "onDragIn": null,
+            "onDragMove": null,
+            "onDragOut": null,
+            "onDragEnd": null,
+            "disabled": false
+        };
+        //
+        this.drag = null;
+        this.options = $.extend(defaults, options);
+        //
+        this.initialize();
+    }
+
+    $.extend(DragNDrop.prototype, {
+        initialize: function () {
+            this.data = (this.options.data || this);
+            this.disabled = false;
+            this.element.addClass("drag-container");
+            this.element.drag({
+                "cursor": null,
+                "selector": ".drag,.drop",
+                "data": this,
+                "onDown": this.downEvent,
+                "onMove": this.moveEvent,
+                "onUp": this.upEvent
+            });
+        },
+
+        downEvent: function (x, y, that) {
+            var $item = $(this);
+            if (that.options.disabled || !$item.is(".drag")) {
+                // if drag is disable or item is not draggable, abort cursor event
+                return false;
+            }
+            else {
+                // if there is an ongoing drag, abort it
+                if (that.drag)
+                    that.endDrag();
+                // add class to container and fire onDragStart
+                that.element.addClass("dragging");
+                (that.options.onDragStart || nop).call(that.data, $item);
+                // set this element as current drag
+                that.drag = $item;
+                $item.addClass("in");
+                // if dropable
+                if ($item.hasClass("drop")) {
+                    $item.addClass("over");
+                    that.over = $item;
+                    (that.options.onDragIn || nop).call(that.data, $item);
+                    that.elementMove($item, x, y);
+                }
+                //
+                return true;
+            }
+        },
+
+        moveEvent: function (x, y, that) {
+            // if there isn't an ongoing drag, or the target is not return
+            if (!that.drag)
+                return;
+            // check if the over element changed
+            var $item = $(this);
+            if ($item.is(that.over)) {
+                // if it's the same element, fire onDragMove
+                that.elementMove($item, x, y);
+            }
+            else {
+                // process drag out previous element
+                // don't go over $item if it's not drop or it's the current drag item
+                if ($item.hasClass("drop")) {
+                    if (that.over) {
+                        that.over.removeClass("over");
+                        (that.options.onDragOut || nop).call(that.data, that.over);
+                    }
+                    $item.addClass("over");
+                    (that.options.onDragIn || nop).call(that.data, $item);
+                    that.over = $item;
+                    that.elementMove($item, x, y);
+                }
+            }
+        },
+
+        upEvent: function (that) {
+            (that.options.onDragEnd || nop).call(that.data, that.drag, that.over);
+            that.endDrag();
+        },
+
+        elementMove: function ($item, x, y) {
+            // get x and y on element coordinates
+            var offsetContainer = this.element.offset();
+            var offsetItem = $item.offset();
+            //
+            x -= (offsetItem.left - offsetContainer.left);
+            y -= (offsetItem.top - offsetContainer.top);
+            //
+            (this.options.onDragMove || nop).call(this.data, $item, x, y);
+        },
+
+        endDrag: function () {
+            // remove class from container
+            this.element.removeClass("dragging");
+            // drag out if there is an over element
+            if (this.over) {
+                (this.options.onDragOut || nop).call(this.data, this.over);
+                this.over = null;
+            }
+            // endDrag
+            if (this.drag) {
+                this.drag.removeClass("in");
+                (this.options.dragEng || nop).call(this.data, this.drag);
+            }
+        },
+
+        __enable: function (enable) {
+            this.options.disabled = !enable;
+        }
+
+    });
+
+    // PLUGINDRAGNDROP
+    $.fn.dragndrop = function (options, arg1, arg2) {
+        // check if the element has a list plugin, and creates one if necessary
+        var element = $(this);
+        var plugin = element.data(DRAGNDROP_FIELD);
+        if (!plugin) {
+            // plugin doesn't exist. create it
+            plugin = new DragNDrop(element, options);
+            return element;
+        }
+        else {
+            // else, try to execute a plugin method
+            if (typeof options !== 'string')
+                throw 'Method name not specified';
+            else {
+                var method = plugin['__' + options];
+                if (!method)
+                    throw 'Method not found: ' + options;
+                else
+                    return method.call(plugin, arg1, arg2);
+            }
+        }
+    }
+
+
+    // ***************************************************************************************************************
+
+    // CLASSESPLITTER
+    function Splitter(element, options) {
+        //
+        this.element = element
+            .data(SPLITTER_FIELD, this);
+        //
+        if (typeof options === "string")
+            options = { style: options };
+        //
+        this.options = $.extend({}, this.defaults, options);
+        //
+        this.initialize();
+    }
+
+    $.extend(Splitter.prototype, {
+        defaults: {
+            style: "horizontal",
+            width: "100%",
+            height: "auto",
+            ratio: 0.5,
+            min: "200",
+            //
+            context: null,
+            onChange: null
+        },
+        initialize: function () {
+            var options = this.options;
+            //
+            this.minSize = false;
+            this.expanded = false;
+            this.dragging = null;
+            this.context = (options.context || this.element);
+            this.onChange = functionOrNull(options.onChange)
+            // create panels
+            this.html = {};
+            this.html.container = $("<div>")
+                .addClass("ui-split " + this.options.style)
+                .append(
+                this.html.panelA = $("<div>", { "class": "ui-panel ui-split-a" }),
+                this.html.panelB = $("<div>", { "class": "ui-panel ui-split-b" }),
+                this.html.grip = $("<div>", { "class": "ui-split-grip" })
+                ).appendTo(this.element);
+            // create a shortcut for both panels
+            this.html.both = this.html.container.find(".ui-panel");
+            // create panel indexes
+            var index = this.index = {};
+            index.a = index.A = index[0] = this.html.panelA;
+            index.b = index.B = index[1] = this.html.panelB;
+            // adjust panels
+            this.size = null;
+            this.__restore();
+            // set events
+            this.html.container.drag({
+                "cursor": (this.options.style === "horizontal" ? "ew-resize" : "ns-resize"),
+                "selector": ".ui-split-grip",
+                "data": this,
+                "onDown": this.gripDown,
+                "onMove": this.gripMove,
+                "onUp": this.gripUp
+            });
+        },
+
+        gripDown: function (x, y, that) {
+            that.setDragPosition(x, y);
+            that.html.grip.addClass("selected");
+        },
+
+        gripUp: function (that) {
+            that.html.grip.removeClass("selected");
+            that.options.ratio = that.dragging;
+            that.dragging = null;
+            that.__restore();
+            that.changed();
+        },
+
+        gripMove: function (x, y, that) {
+            that.setDragPosition(x, y);
+        },
+
+        changed: function () {
+            if (this.onChange)
+                this.onChange.call(this.context);
+        },
+
+        setDragPosition: function (x, y) {
+            var horizontal = (this.options.style === "horizontal");
+            // get target variables
+            var t = (horizontal
+                ? { "d": "width", "v": x, "c": "left" }
+                : { "d": "height", "v": y, "c": "top" }
+            );
+            // process minimum size
+            var dim = parseFloat(this.html.container[t.d]());
+            var min = (this.options.min || 0);
+            // limit the size to minimum, if needed
+            if (t.v < min)
+                t.v = min;
+            else if (t.v > dim - min)
+                t.v = dim - min;
+            // apply drag position
+            this.dragging = t.v / dim;
+            this.html.grip.css(t.c, this.dragging * 100 + "%");
+        },
+
+        // dimensions()
+        // dimensions(width, height)
+        // dimensions({ width, height })
+        __dimensions: function (widthOrObj, height) {
+            // if no parameters, get dimensions
+            if (!arguments.length)
+                return {
+                    width: parseInt(this.element.css("width")),
+                    height: parseInt(this.element.css("height"))
+                };
+            // else, set dimensions
+            var width = widthOrObj;
+            // if widthOrObj is an object, read width and height from it
+            if (typeof widthOrObj === "object") {
+                width = widthOrObj.width;
+                height = widthOrObj.height;
+            }
+            // set dimensions and, if not expanded, restore to update panels
+            this.element.css({
+                "width": width,
+                "height": height
+            });
+            // object chaining
+            return this.element;
+        },
+
+        // gets or sets the splitter ratio
+        __ratio: function (ratio) {
+            ratio = parseFloat(ratio);
+            if (isNaN(ratio))
+                // ratio not a number. it's a get
+                return this.options.ratio;
+            else {
+                // ratio is a number. set it
+                this.options.ratio = ratio;
+                this.__restore();
+                this.changed();
+                // object chaining
+                return this.element;
+            }
+        },
+
+        __expanded: function () {
+            return this.expanded;
+        },
+
+        // set a panel as expanded
+        // parameters: (panelIndex), (panelLetter), ($panel) or null
+        __expand: function (arg1) {
+            // if no valid panel informed, reduce
+            var panel = this.__panel(arg1);
+            if (!panel)
+                return this.__restore();
+            // if selected panel is not expanded, execute panel expansion
+            if (!panel.hasClass("full")) {
+                this.expanded = true;
+                this.html.container.addClass("full");
+                this.html.both.removeClass("full");
+                panel.addClass("full");
+            }
+            return this.element;
+        },
+
+        // resize the panels based on ratio, returning to split view if required
+        __restore: function () {
+            // remove full state, if any
+            if (this.expanded) {
+                this.expanded = false;
+                this.html.container.removeClass("full");
+                this.html.both.removeClass("full");
+            }
+            // get target properties based on splitter orientation
+            var horizontal = (this.options.style === "horizontal");
+            var t = (horizontal
+                ? { "d": "width", "c": "left" }
+                : { "d": "height", "c": "top" }
+            );
+            // get properties
+            var min = this.options.min;
+            var ratio = this.options.ratio;
+            var dim = this.html.container[t.d]();
+            // if smaller than minimum, put splitter in the middle
+            if (dim < 2 * min)
+                ratio = 0.5;
+            else {
+                // else, check if at least one panel minimum is violated, and prevent this by overriding ratio
+                var minRatio = min / dim;
+                if (ratio < minRatio)
+                    ratio = minRatio;
+                else if (ratio > 1 - minRatio)
+                    ratio = 1 - minRatio;
+            }
+            // set html properties
+            this.html.grip.css(t.c, (ratio) * 100 + "%");
+            this.html.panelA.css(t.d, (ratio) * 99 + "%");
+            this.html.panelB.css(t.d, (1 - ratio) * 99 + "%");
+            // object chaining
+            return this.element;
+        },
+
+        // get or set panel A or B 
+        __panel: function (arg1, arg2) {
+            // get panel based on arg1
+            var panel = (arg1 instanceof $ ? arg1 : this.index[arg1]);
+            // if panel or content not defined, return panel (can be undefined)
+            if (!panel || !arg2)
+                return panel;
+            else {
+                // else, set panel html contents
+                panel.empty().append(arg2);
+                return this.element;
+            }
+        },
+        // get both panels elements
+        __panels: function () {
+            return {
+                "A": this.html.panelA,
+                "B": this.html.panelB
+            };
+        },
+        // create some alias methods
+        __panelA: function (arg) { return this.__panel(this.html.panelA, arg); },
+        __panelB: function (arg) { return this.__panel(this.html.panelB, arg); }
+    });
+
+    // PLUGINSPLITTER
+    $.splitter = function () {
+        return $.fn.splitter.apply($("<div>"), arguments);
+    }
+
+    $.fn.splitter = function (options, _) {
+        // check if the element has a list plugin, and creates one if necessary
+        var element = $(this);
+        var plugin = element.data(SPLITTER_FIELD);
+        if (!plugin) {
+            // plugin doesn't exist. create it
+            new Splitter(element, options);
+            return element;
+        }
+        else {
+            // else, try to execute a plugin method
+            if (typeof options !== 'string')
+                throw 'Method name not specified';
+            // if it's a string, get method from plugin
+            var method = plugin['__' + options];
+            if (!method)
+                throw 'Method not found: ' + options;
+            // if method existm call it
+            var args = [].slice.call(arguments, 1);
+            return method.apply(plugin, args);
+        }
+    }
+
+    function nop() {
+        //
+    }
+
+    function exception(e) {
+        console.log(e);
+        console.log(e.stack)
+    }
+
+    function functionOrNull(f) {
+        return ($.isFunction(f) ? f : null);
+    }
+
+    function functionOrNop(f) {
+        return ($.isFunction(f) ? f : nop);
+    }
+
+    function eventListen(target, event, callback) {
+        event = event.split(" ");
+        //
+        while (event.length) {
+            if (UI.canAddListener)
+                target.addEventListener(event.pop(), callback);
+            else
+                target.attachEvent("on" + event.pop(), callback);
+        }
+    }
+
+    function isTouchEvent(e) {
+        return (UI.hasTouch() && e instanceof TouchEvent);
+    }
+
+    function elementFromPoint(x, y) {
+        return document.elementFromPoint(x, y);
+    }
+
+    // fix cursor events
+    UI.fix = function (e) {
+        if (!e instanceof $.Event)
+            e = $.event.fix(e);
+
+        var original = (e.originalEvent || e);
+
+        if (isTouchEvent(original) && original.changedTouches.length > 0) {
+            var cursor = original.changedTouches[0];
+            var target = (original.type != "touchmove" ? e.target : elementFromPoint(cursor.clientX, cursor.clientY));
+
+            return {
+                "data": e.data,
+                "pageX": cursor.pageX,
+                "pageY": cursor.pageY,
+                "which": BTN_TOUCH,
+                "target": target,
+                "currentTarget": e.currentTarget,
+                "delegateTarget": (e.delegateTarget || e.currentTarget),
+                "preventDefault": e.preventDefault,
+                "stopPropagation": e.stopPropagation
+            };
+        }
+        return e;
+    }
+
+}(window.UI = window.UI || {}, jQuery));

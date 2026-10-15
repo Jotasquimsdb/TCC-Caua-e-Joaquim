@@ -1,0 +1,92 @@
+﻿.pesquisas-menu-arvore {
+  width: 500px;
+  margin: 5px;
+}
+.modal-body .pesquisas-menu-arvore {
+  width: inherit;
+}
+.pesquisas-menu-form {
+  margin-left: 5px;
+  margin-bottom: 10px;
+  max-width: 256px;
+}
+.pesquisas-menu-arvore ul {
+  list-style-type: none;
+  padding-left: 15px;
+}
+.pesquisas-menu-arvore > ul {
+  width: 100%;
+  max-height: 400px;
+  overflow: auto;
+  padding: 0;
+}
+.pesquisas-menu-arvore li {
+  padding: 2px;
+}
+.pesquisas-menu-arvore span {
+  cursor: pointer;
+}
+.pesquisas-menu-arvore > ul > li {
+  margin-left: 0;
+}
+.pesquisas-menu-arvore > ul > li > .expande {
+  border-top: 1px dashed #b3b3b3;
+}
+.pesquisas-menu-arvore > ul > li:first-child > .expande {
+  border-top: 0;
+}
+.pesquisas-menu-arvore > ul > li > span {
+  display: block;
+  padding: 4px 5px;
+  font-weight: bold;
+  font-style: normal;
+}
+.pesquisas-menu-arvore a:hover,
+.pesquisas-menu-arvore span:hover {
+  background-color: #DFDFDF;
+  background-image: -webkit-linear-gradient(top, #dfdfdf 0%, #c2c2c2 100%);
+  background-image: -o-linear-gradient(top, #dfdfdf 0%, #c2c2c2 100%);
+  background-image: -webkit-gradient(linear, left top, left bottom, from(#dfdfdf), to(#c2c2c2));
+  background-image: linear-gradient(to bottom, #dfdfdf 0%, #c2c2c2 100%);
+  filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#DFDFDF', endColorstr='#C2C2C2', GradientType=0);
+  background-repeat: repeat-x;
+  color: black;
+  text-decoration: none;
+  padding: 4px 5px;
+  display: block;
+}
+.pesquisas-menu-arvore a,
+.pesquisas-menu-arvore span {
+  color: black;
+  padding: 4px 5px;
+  display: block;
+  font-style: normal;
+}
+.pesquisas-menu-arvore a.disabled {
+  font-style: italic;
+  color: #a4a4a4 !important;
+  cursor: default;
+}
+.pesquisas-menu-arvore a.disabled:after {
+  content: " (Em construção)";
+}
+.pesquisas-menu-arvore a.disabled:hover {
+  background: transparent;
+  border-bottom: 0 !important;
+  text-shadow: 0 0;
+}
+.pesquisas-menu-arvore span.expande:before {
+  content: "\e114";
+}
+.pesquisas-menu-arvore span:before {
+  font-family: "Glyphicons Halflings";
+  font-style: normal;
+  line-height: 1;
+  content: "\e080";
+  color: #b3b3b3;
+  font-weight: 400;
+  position: relative;
+  margin-right: 4px;
+  vertical-align: middle;
+  cursor: pointer;
+}

@@ -1,0 +1,237 @@
+﻿(function ($) {
+
+    function Arvore() {
+
+        this._defaults = {
+            filter: ''
+        };
+
+    }
+
+    $.extend(Arvore.prototype, {
+        propertyName: 'arvore',
+        markerClassName: 'hasArvore',
+        arvore: null,
+        EXPANDIR: 0,
+        RETRAIR: 1,
+
+        _attachArvorePlugin: function (target, options) {
+            target = $(target);
+
+            // Verifica se a arvore já foi inicializada
+            if (target.hasClass(this.markerClassName)) 
+                return;
+
+            // estende as opcoes padrão 
+            var inst = { "options": $.extend(true, {}, this._defaults, options) };
+            inst.element = target;
+            target.data(this.propertyName, inst);
+
+
+            var arvore = this._percorreArvore(target);
+            this._criarReferencias(arvore, null);
+            
+            this._criaExpansao(target);
+
+            inst.arvore = arvore;
+
+            return target;
+        },
+
+        _expandeLista: function(ul, tipo) {
+            var hidden = $(ul).data('hidden') || false;
+
+            if (tipo == Arvore.prototype.EXPANDIR) {
+                $(ul).css("display", "block");
+
+                $(ul).parent().find(">span").addClass("expande");
+                $(ul).data('hidden', false);
+            } else if (tipo == Arvore.prototype.RETRAIR) {
+                $(ul).css("display", "none");
+
+                $(ul).parent().find(">span").removeClass("expande");
+                $(ul).data('hidden', true);
+            } else {
+                if (hidden) {
+                    $(ul).css("display", "block");
+                } else {
+                    $(ul).css("display", "none");
+                }
+
+                $(ul).parent().find(">span").toggleClass("expande");
+                $(ul).data('hidden', !hidden);
+            }
+        },
+
+        _expandeArvorePlugin: function(target, tipo) {
+            var inst = target.data(this.propertyName);
+            var arvore = inst.arvore;
+            var nos = arvore.nos;
+
+            var uls = $(target).find(">ul ul");
+            for (var n = 0; n < uls.length; n++) {
+                var ul = uls[n];
+                this._expandeLista(ul, tipo);
+            }
+
+            var lis = $(target).find("li");
+            for (var n = 0; n < lis.length; n++) {
+                var li = lis[n];
+                $(li).css('display', 'block');
+            }
+
+        },
+
+        _criaExpansao: function(target) {
+            var lis = $(target).find(">ul").find("li > span").click(function () {
+                var ul = $(this).parent().find(">ul");
+                
+                Arvore.prototype._expandeLista(ul, Arvore.prototype.ALTERAR);
+            });
+
+            var uls = $(target).find(">ul:first").find("ul");
+            $(uls).data('hidden', true);
+            $(uls).css("display", "none");
+        },
+
+        _filterArvorePlugin: function (target, filter) {
+            var inst = target.data(this.propertyName);
+            var filterAtual = this._paramArvorePlugin(target, 'filter');
+
+            if (filter == filterAtual) {
+                return;
+            }
+
+            this._optionArvorePlugin(target, {
+                'filter': filter
+            });
+
+            if (filter == '') {
+                this._expandeArvorePlugin(target, Arvore.prototype.RETRAIR);
+                return;
+            }
+
+            this._filter(target, inst.arvore);
+        },
+
+        _filter: function (target, arvore, ignorarFiltro) {
+            var filter = this._paramArvorePlugin(target, 'filter');
+            var titulo = arvore.titulo;
+            var element = arvore.element;
+            var nos = arvore.nos;
+            var ignorarFiltroProximaIt = false;
+
+            // Tratamento filtros
+            if (titulo == null) {
+                titulo = '';
+            }
+
+            filter = removeAcentos(filter.toLowerCase());
+            titulo = removeAcentos(titulo.toLowerCase());
+
+            if (ignorarFiltro != true &&
+                titulo != '' &&
+                titulo.indexOf(filter) < 0) {
+
+                $(element).css('display', 'none');
+            } else {
+                $(element).css('display', 'block');
+
+                var ulPai = $(arvore.element).parent();
+                this._expandeLista(ulPai, Arvore.prototype.EXPANDIR);
+
+                var noPai = arvore.pai;
+                while (noPai != null) {
+                    var elementPai = noPai.element;
+                    $(elementPai).css('display', 'block');
+
+                    var ulPai = $(elementPai).parent();
+                    this._expandeLista(ulPai, Arvore.prototype.EXPANDIR);
+
+                    noPai = noPai.pai;
+                }
+
+                if (titulo != '') {
+                    ignorarFiltroProximaIt = true;
+                }
+            }
+
+            if (ignorarFiltro === true) {
+                ignorarFiltroProximaIt = true;
+            }
+
+            for (var j = 0; j < nos.length; j++) {
+                var no = nos[j];
+                this._filter(target, no, ignorarFiltroProximaIt);
+            }
+        },
+
+        _criarReferencias: function (arvore, pai) {
+            var nos = arvore.nos;
+
+            arvore.pai = pai;
+            for (var i = 0; i < nos.length; i++) {
+                var no = nos[i];
+
+                this._criarReferencias(no, arvore);
+            }
+        },
+
+        _percorreArvore: function (target) {
+            var arvore = {
+                titulo: null,
+                element: null,
+                pai: null,
+                nos: []
+            };
+
+            var titulo = $(target).find(">a, >span").html();
+
+            if (titulo) {
+                arvore.titulo = titulo;
+                arvore.element = target;
+            }
+
+            var uls = $(target).find(">ul");
+            for (var i = 0; i < uls.length; i++) {
+                var lis = $(uls[i]).find(">li");
+
+                for (var j = 0; j < lis.length; j++) {
+                    var li = lis[j];
+                    arvore.nos[j] = this._percorreArvore(li, arvore);
+                }
+            }
+
+            return arvore;
+        },
+
+        _optionArvorePlugin: function (target, options) {
+            var inst = target.data(this.propertyName);
+            $.extend(inst.options, options);
+            // encadeamento de objeto
+            return target;
+        },
+
+        _paramArvorePlugin: function (target, key) {
+            var inst = target.data(this.propertyName);
+            var options = inst.options;
+            return options[key];
+        }
+
+    });
+
+    $.fn.arvore = function (options, arg1) {
+        if (typeof options === 'string') {
+            var metodo = arvorePlugin['_' + options + 'ArvorePlugin'];
+            if (!metodo)
+                throw 'Método não encontrado: ' + options;
+            else
+                return metodo.apply(arvorePlugin, [this, arg1]);
+        } else {
+            return arvorePlugin._attachArvorePlugin(this, options || {});
+        }
+    };
+
+    var arvorePlugin = $.arvore = new Arvore();
+
+})(jQuery);

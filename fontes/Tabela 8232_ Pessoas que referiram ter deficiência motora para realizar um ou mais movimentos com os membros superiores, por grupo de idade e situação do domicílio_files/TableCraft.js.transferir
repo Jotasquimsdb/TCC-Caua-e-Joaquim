@@ -1,0 +1,965 @@
+
+
+var TableBuilder = null;
+var Workbook = null;
+
+(function ($) {
+    "use strict";
+
+    function TableStructure(parent) {
+        this._initialize.apply(this, arguments);
+    }
+
+    function baseBuild(model, col, row, width, height) {
+        model.contextIn(this);
+
+        this._build.apply(this, arguments);
+
+        model.contextOut();
+    }
+
+    extend(TableStructure.prototype, {
+        _initialize: function (parent) {
+            this._validation = null;
+            this._parent = parent;
+            this._styleClass = null;
+            this._elements = [];
+        },
+
+        _addElement: function (element) {
+            this._validation = null;
+            this._elements.push(element);
+            return element;
+        },
+
+        end: function () {
+            return (this._parent || this._throw('Cannot execute "end" on a terminal context'));
+        },
+
+        validate: function () {
+            return (this._validation || (this._validation = this._validate()));
+        },
+
+        _validate: function () {
+            this._abstract();
+        },
+
+        _build: function (model, x, y, width, height) {
+            this._abstract();
+        },
+
+        build: baseBuild,
+
+        _listValidation: function (layout, count, start, step) {
+            var elements = this._elements;
+
+            count = (count || elements.length); // if count is not specified, validate all children
+            start = (start || 0);
+            step = (step || 1);
+
+            // check if layout of evaluation is vertical or horizontal
+            var isVertical = (layout == "vertical");
+
+            // "touchDirection" refers to the direction in which the children touches each other
+            var touchDirection = (isVertical ? "cols" : "rows");
+
+            // "stackDirection" refers to the direction in which the children stack with each other
+            var stackDirection = (isVertical ? "rows" : "cols");
+
+            // start with an empty validation object and iterate children
+            var validation = { cols: 0, rows: 0 };
+
+            for (var index = start; count-- > 0; index += step) {
+                // get child validation and check if it's touching edge match previous validations
+                var elementValidation = elements[index].validate();
+                var match = boundsMatch(validation[touchDirection], elementValidation[touchDirection]);
+
+                // if bounds matched, update validation object
+                validation[touchDirection] = match;
+                validation[stackDirection] += elementValidation[stackDirection];
+            }
+
+            // return validation object
+            return validation;
+        },
+
+        _abstract: function () {
+            this._throw("Abstract method");
+        },
+
+        _throw: function (message) {
+            throw new Error("[TableBuilder] " + message);
+        }
+    });
+
+    // ************************************************************************************************************************
+
+    function TableBlockStructure(parent) {
+        this._initialize.apply(this, arguments);
+    }
+
+    derive(TableBlockStructure, TableStructure, {
+        dataBlock: function (cols, rows, contents) {
+            this._addElement(new TableDataBlock(this, cols, rows, contents));
+            return this;
+        },
+
+        grid: function (cols, rows) {
+            return this._addElement(new TableGrid(this, cols, rows));
+        }
+    });
+
+    // ************************************************************************************************************************
+
+    TableBuilder = function (name, style) {
+        this._initialize(null);
+    };
+
+    function TableContext(parent, style) {
+        this._initialize.apply(this, arguments);
+    }
+
+    function TableBlock(parent, style) {
+        this._initialize.apply(this, arguments);
+    }
+
+    function TableRow(parent, style) {
+        this._initialize.apply(this, arguments);
+        this._styleClass = style;
+    }
+
+    function TableCol(parent, style) {
+        this._initialize.apply(this, arguments);
+        this._styleClass = style;
+    }
+
+    // ************************************************************************************************************************
+
+    function TableMatrix(parent, cols, rows, contents) {
+        this._initialize.apply(this, arguments);
+    }
+
+    function TableDataBlock(parent, cols, rows, contents) {
+        this._initialize.apply(this, arguments);
+    }
+
+    function TableGrid(parent, cols, rows) {
+        this._initialize.apply(this, arguments);
+    }
+
+    // ************************************************************************************************************************
+    // TERMINAL ELEMENTS ******************************************************************************************************
+    // ************************************************************************************************************************
+
+    function TableCell(header, text, x, y, width, height) {
+        this.contents = text;
+        this.className = null;
+        this.type = (header ? "header" : "data");
+        this.col = x;
+        this.row = y;
+        this.colspan = width;
+        this.rowspan = height;
+    }
+
+    function TableDataRow(text, x, y, width, height) {
+        this.type = "datarow";
+        this.contents = text;
+        this.col = x;
+        this.row = y;
+        this.colspan = width;
+        this.rowspan = height;
+    }
+
+    function TableTerminal() {
+        //
+    }
+
+    function TableHeader(contents, style) {
+        this._contents = contents;
+        this._styleClass = style;
+    }
+
+    function TableData(contents) {
+        this._contents = contents;
+    }
+
+    function TableHierarchy(layout, contents, mode, style) {
+        this._layout = layout;
+        this._contents = contents;
+        this._mode = (mode || "lean");
+        this._styleClass = style;
+    }
+
+    extend(TableTerminal.prototype, {
+        validate: function () {
+            return (this._validation = (this._validate ? this._validate() : { cols: 1, rows: 1 }));
+        },
+
+        build: baseBuild,
+
+        _throw: function (message) {
+            throw new Error("[TableTerminal] " + message);
+        }
+    });
+
+    derive(TableHeader, TableTerminal, {
+        _build: function (model, x, y, width, height) {
+            model.add(new TableCell(true, this._contents, x, y, width, height));
+        }
+    });
+
+    derive(TableData, TableTerminal, {
+        _build: function (model, x, y, width, height) {
+            model.add(new TableCell(false, this._contents, x, y, width, height));
+        }
+    });
+
+    derive(TableHierarchy, TableTerminal, {
+        _validate: function () {
+            var isVertical = (this._layout === "vertical");
+            var contents = this._contents;
+
+            if (!isArray(contents))
+                this._throw("Content must be an array");
+
+            var count = 1;
+            var len = contents.length;
+
+            for (var i = 0; i < len; i++) {
+                var dimension = contents[i];
+
+                if (!isArray(dimension))
+                    this._throw("Dimension " + i + " of content must be an array");
+
+                if (this._mode === "deep")
+                    count = dimension.length;
+                else
+                    count = dimension.length * count;
+            }
+
+            return {
+                rows: (isVertical ? count : len),
+                cols: (isVertical ? len : count)
+            };
+        },
+
+        _build: function (model, col, row, width, height) {
+            var isVertical = (this._layout === "vertical");
+            var isLean = (this._mode == "lean");
+
+            var validation = this._validation;
+            var colspan = ~~(width / validation.cols);
+            var rowspan = ~~(height / validation.rows);
+
+            var repeatCount = 1;
+
+            for (var i = 0; i < this._contents.length; i++) {
+                var dimension = this._contents[i];
+                var len = dimension.length;
+
+                var tx = col;
+                var ty = row;
+                var w = (isVertical ? colspan : width / len);
+                var h = (isVertical ? height / len : rowspan);
+
+                for (var k = repeatCount; k--;) {
+                    for (var j = 0; j < len; j++) {
+                        model.add(new TableCell(true, dimension[j], col, row, w, h));
+                        (isVertical ? row += h : col += w);
+                    }
+                }
+
+                if (isLean)
+                    repeatCount *= len;
+
+                if (isVertical) {
+                    col += colspan;
+                    row = ty;
+                    if (isLean)
+                        height = h;
+                }
+                else {
+                    col = tx;
+                    row += rowspan;
+                    if (isLean)
+                        width = w;
+                }
+            }
+        }
+    });
+
+    // ************************************************************************************************************************
+    // MATRIX ELEMENTS ********************************************************************************************************
+    // ************************************************************************************************************************
+
+    derive(TableMatrix, TableStructure, {
+        _initialize: function (parent, cols, rows, contents) {
+            this._cols = cols;
+            this._rows = rows;
+            this._count = cols * rows;
+
+            if (arguments.length) {
+                if (!parseInt(cols) || !parseInt(rows))
+                    throw "Invalid dimensions: (" + cols + "," + rows + ")";
+
+                if (contents)
+                    this._elements = contents;
+            }
+        },
+
+        _get: function (col, row) {
+            if (!arguments.length) {
+                this._throw("Index not specified");
+            }
+            else if (arguments.length < 2) {
+                if (col < 0 || col >= this._count)
+                    this._throw("Index out of range");
+                return this._elements[col];
+            }
+            else {
+                if (col < 0 || row < 0 || col > this._cols || row > this._rows)
+                    this._throw("Index out of range");
+                return this._elements[col + row * this._cols];
+            }
+        }
+    });
+
+    derive(TableDataBlock, TableMatrix, {
+        _initialize: function () {
+            //
+        },
+
+        _validate: function () {
+            if (this._elements.length !== this._count) {
+                this._throw("Content length doesn't match dimensions");
+            }
+            return {
+                rows: this._rows,
+                cols: this._cols
+            };
+        },
+
+        _build: function (model, x, y, width, height) {
+            var validation = this._validation;
+            var colspan = ~~(width / validation.cols);
+            var rowspan = ~~(height / validation.rows);
+
+            var data = this._elements;
+            var index = 0;
+
+            for (var i = 0; i < this._rows; i++) {
+                var row = new TableDataRow(data.slice(index, index + this._cols), x, y, width, rowspan);
+                //
+                model.add(row);
+                //
+                index += this._cols;
+                y += rowspan;
+            }
+        }
+    });
+
+    derive(TableGrid, TableMatrix, {
+        _initialize: function (parent, cols, rows) {
+            for (var i = this._count; i--;) {
+                this._elements.push(new TableBlock(this));
+            }
+        },
+
+        _row: function (index) {
+            var start = index * this._cols;
+            return this._elements.slice(start, start + this._cols);
+        },
+
+        _col: function (index) {
+            var col = [];
+
+            for (var i = 0; i < this._cols; i++) {
+                col.push(this._elements[index + i * this._cols]);
+            }
+
+            return col;
+        },
+
+        cell: function (col, row) {
+            return this._get.apply(this, arguments);
+        },
+
+        _validate: function () {
+            var validation = {
+                cols: 0,
+                rows: 0,
+                _cols: [],
+                _rows: []
+            };
+
+            var nRows = this._rows;
+            var nCols = this._cols;
+
+            for (var i = 0; i < nRows; i++) {
+                var rowValidation = this._listValidation("horizontal", nCols, i * nCols, 1);
+                validation.rows += rowValidation.rows;
+                validation._rows.push(rowValidation);
+            }
+
+            for (var i = 0; i < nCols; i++) {
+                var colValidation = this._listValidation("vertical", nRows, i, nCols);
+                validation.cols += colValidation.cols;
+                validation._cols.push(colValidation);
+            }
+
+            return validation;
+        },
+
+        _build: function (model, x, y, width, height) {
+            var validation = this._validation;
+            var colspan = ~~(width / validation.cols);
+            var rowspan = ~~(height / validation.rows);
+
+            var index = 0;
+
+            for (var i = 0; i < this._rows; i++) {
+                var tx = x;
+
+                for (var j = 0; j < this._cols; j++) {
+                    var cell = this._elements[index++];
+                    var rowValidation = validation._rows[i];
+                    var colValidation = validation._cols[j];
+
+                    width = colValidation.cols * colspan;
+                    height = rowValidation.rows * rowspan;
+
+                    cell.build(model, x, y, width, height);
+
+                    x += colspan * colValidation.cols;
+                }
+
+                x = tx;
+                y += rowspan * validation._rows[i].rows;
+            }
+        }
+    });
+
+    // ************************************************************************************************************************
+    // STRUCTURAL ELEMENTS ****************************************************************************************************
+    // ************************************************************************************************************************
+
+    derive(TableContext, TableBlockStructure, {
+        header: function (contents, style) {
+            this._addElement(new TableHeader(contents, style));
+            return this;
+        },
+
+        data: function (contents) {
+            this._addElement(new TableData(contents));
+            return this;
+        },
+
+        hierarchy: function (contents, mode, style) {
+            this._addElement(new TableHierarchy(this._layout, contents, mode, style));
+            return this;
+        },
+
+        _validate: function () {
+            return this._listValidation(this._layout);
+        },
+
+        _build: function (model, x, y, width, height) {
+            buildLayout.apply(this, arguments);
+        }
+    });
+
+    derive(TableRow, TableContext, {
+        _layout: "horizontal",
+
+        col: function (style) {
+            return this._addElement(new TableCol(this, style));
+        },
+
+        cols: function (item, style) {
+            for (var i = 0, l = item.length; i < l; i++)
+                this.col().header(item[i], style);
+            return this;
+        }
+    });
+
+    derive(TableCol, TableContext, {
+        _layout: "vertical",
+
+        row: function (style) {
+            return this._addElement(new TableRow(this, style));
+        },
+
+        rows: function (item, style) {
+            for (var i = 0, l = item.length; i < l; i++)
+                this.row().header(item[i], style);
+            return this;
+        }
+    });
+
+    // ************************************************************************************************************************
+
+    derive(TableBlock, TableBlockStructure, {
+        _initialize: function () {
+            this._layout = null;
+        },
+
+        row: function (style) {
+            if (this._layout === "horizontal")
+                this._throw("Cannot mix rows and cols in the same block");
+
+            this._layout = "vertical";
+
+            return this._addElement(new TableRow(this, style));
+        },
+
+        col: function (style) {
+            if (this._layout === "vertical")
+                this._throw("Cannot mix rows and cols in the same block");
+
+            this._layout = "horizontal";
+
+            return this._addElement(new TableCol(this, style));
+        },
+
+        _validate: function () {
+            var len = this._elements.length;
+
+            // if there are no children, return an empty validation
+            if (len == 0)
+                return { cols: 0, rows: 0 };
+
+            // if there is only one child, the block validation is this child validation
+            if (len == 1)
+                return this._elements[0].validate();
+
+            // else, there are many children. if layout is undefined, throws an exception
+            if (!this._layout)
+                this._throw('Could not determine layout orientation. Try using "row" and "col" methods');
+
+            // else, call list validation
+            return this._listValidation(this._layout);
+        },
+
+        _build: function (model, x, y, width, height) {
+            buildLayout.apply(this, arguments);
+        }
+    });
+
+    function buildLayout(model, x, y, width, height) {
+        var isVertical = (this._layout === "vertical");
+
+        // get validation object and, if it's empty, return with and empty cell output
+        var validation = this._validation;
+
+        if (!validation.cols || !validation.rows) {
+            if (width > 0 && height > 0)
+                model.add(new TableCell(true, "", x, y, width, height));
+            return;
+        }
+
+        var colspan = ~~(width / validation.cols);
+        var rowspan = ~~(height / validation.rows);
+
+        for (var i = 0; i < this._elements.length; i++) {
+            var element = this._elements[i];
+            var elementValidation = element._validation;
+
+            if (isVertical) {
+                width = validation.cols;
+                height = elementValidation.rows;
+            }
+            else {
+                width = elementValidation.cols;
+                height = validation.rows;
+            }
+
+            width *= colspan;
+            height *= rowspan;
+
+            element.build(model, x, y, width, height);
+
+            if (isVertical)
+                y += height;
+            else
+                x += width;
+        }
+    }
+
+    // ************************************************************************************************************************
+
+    derive(TableBuilder, TableBlock, {
+        _initialize: function (name, style) {
+            this._name = name;
+            this._styleClass = style;
+        },
+
+        build: function () {
+            var model = new TableModel(name, this._styleClass);
+
+            var validation = this.validate();
+            this._build(model, 0, 0, validation.cols, validation.rows);
+
+            return model;
+        }
+    });
+
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+
+    Workbook = function () {
+        this._tables = [];
+    }
+
+    extend(Workbook.prototype, {
+        table: function (name, style) {
+            var table = new TableBuilder(name, style);
+            this._tables.push(table);
+            return table;
+        },
+
+        build: function () {
+            var model = new WorkbookModel();
+
+            for (var i = 0; i < this._tables.length; i++) {
+                model.add(this._tables[i].build());
+            }
+
+            return model;
+        }
+    });
+
+    // ************************************************************************************************************************
+
+    function WorkbookModel(name) {
+        this.name = (name || "");
+        this.tables = [];
+    }
+
+    extend(WorkbookModel.prototype, {
+        add: function (table) {
+            this.tables.push(table);
+        },
+
+        html: function () {
+            var builder = [];
+
+            for (var t = 0; t < this.tables.length; t++) {
+                this.tables[t]._html(builder);
+            }
+
+            var container = createElement("div");
+            container.innerHTML = builder.join("");
+
+            return container;
+        }
+    });
+
+    function TableModel(name, style) {
+        this._name = name;
+        this._className = style;
+        this._classContext = "";
+
+        this.cols = 0;
+        this.rows = 0;
+
+        this._cells = [];
+    }
+
+    extend(TableModel.prototype, {
+        add: function (cell) {
+            cell.className = this.context();
+
+            this._cells.push(cell);
+
+            this.cols = Math.max(this.cols, cell.col + cell.colspan);
+            this.rows = Math.max(this.rows, cell.row + cell.rowspan);
+
+            return cell;
+        },
+
+        cells: function () {
+            return this._cells.slice();
+        },
+
+        contextIn: function (primitive) {
+            var clss = primitive._styleClass;
+            this._classContext += "\t" + (clss || "").trim();
+        },
+
+        contextOut: function () {
+            var clss = this._classContext;
+            if (clss) {
+                var pos = clss.lastIndexOf("\t");
+                this._classContext = clss.slice(0, pos);
+            }
+        },
+
+        context: function () {
+            return this._classContext.replace(/\s+/g, " ").trim();
+        },
+
+        html: function () {
+            var tableData = this._html([]);
+            var container = createElement("div");
+            container.innerHTML = tableData.join("");
+            return container.childNodes[0];
+        },
+
+        _html: function (builder) {
+            var rows = this._cellsToRows();
+            builder.push("<table>");
+            this._createInnerHtml(builder, rows);
+            builder.push("</table>");
+            return builder;
+        },
+
+        _createInnerHtml: function (builder, rows) {
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                builder.push("<tr>");
+
+                while (row.length) {
+                    var block = row.pop();
+                    var colspan = block.colspan;
+                    var rowspan = block.rowspan;
+
+                    if (block.type !== "datarow") {
+                        var domType = (block.type === "header" ? "th" : "td");
+                        var clss = block.className;
+                        this._createHtmlCell(builder, domType, block.contents, colspan, rowspan, clss);
+                    }
+                    else {
+                        var data = block.contents;
+                        colspan /= data.length;
+
+                        for (var j = 0; j < data.length; j++) {
+                            this._createHtmlCell(builder, "td", data[j], colspan, rowspan);
+                        }
+                    }
+                }
+                builder.push("</tr>");
+            }
+            return builder;
+        },
+
+        _createHtmlCell: function (builder, domType, text, colspan, rowspan, className) {
+            builder.push("<" + domType);
+
+            if (className)
+                builder.push(' class="' + className + '"');
+
+            if (colspan > 1)
+                builder.push(' colspan="' + colspan + '"');
+
+            if (rowspan > 1)
+                builder.push(' rowspan="' + rowspan + '"');
+
+            builder.push(">", escapeText(text), "</" + domType + ">");
+        },
+
+        _cellsToRows: function () {
+            // start creating an empty block array for each table row
+            var len = this.rows;
+            var rows = [];
+
+            for (var i = len; i--;) {
+                rows.push([]);
+            }
+
+            // push each block to it's correct row
+            var cells = this.cells();
+
+            while (cells.length) {
+                var cell = cells.pop();
+                rows[cell.row].push(cell);
+            }
+
+            // sort each row by X coordinate
+            for (var i = 0; i < len; i++) {
+                rows[i].sort(function (a, b) {
+                    return b.col - a.col;   // reversed order
+                });
+            }
+
+            // return
+            return rows;
+        }
+
+    });
+
+    // ************************************************************************************************************************
+
+    // static method that outputs a TableModel from a HTML table    
+    TableBuilder.fromHtml = function (table) {
+        if (!$)
+            throw new Error("[TableBuilder] jQuery library is required for table convertion (for now).");
+
+        table = $(table);
+
+        if (!table.is("table"))
+            table = table.find("table");
+
+        var rows = [];
+
+        table.find("tr").each(function (i, row) {
+            var cells = $(row)
+                .children()
+                .map(cellHtmlToModel)
+                .toArray();
+
+            rows.push(cells);
+        });
+
+        var nRows = rows.length;
+
+        for (var y = nRows; y--;) {
+            var cells = rows[y];
+            var nCells = cells.length;
+            var x = 0;
+
+            for (var i = 0; i < nCells; i++) {
+                var cell = cells[i];
+
+                cell.col = x;
+                cell.row = y;
+
+                if (cell.rowspan > 0)
+                    applyRowSpan(rows, y, cell);
+
+                x += cell.colspan;
+            }
+        }
+
+        var model = new TableModel();
+
+        while (rows.length) {
+            var cells = rows.pop();
+
+            while (cells.length)
+                model.add(cells.pop());
+        }
+
+        return model;
+    };
+
+    function applyRowSpan(rows, y, cell) {
+        var col = cell.col;
+
+        var colspan = cell.colspan;
+        var rowspan = cell.rowspan;
+
+        for (var j = 1; j < rowspan; j++) {
+            var cells = rows[y + j];
+
+            for (var i = cells.length; i-- && cells[i].col >= col;)
+                cells[i].col += colspan;
+        }
+    }
+
+    function cellHtmlToModel(index, cell) {
+        var tableCell = new TableCell(
+            cell.tagName == "TH",
+            $(cell).text(),
+            0, 0, // cell position will be set later
+            (cell.colSpan || 1),
+            (cell.rowSpan || 1)
+        );
+
+        tableCell.className = (cell.className || null);
+
+        return tableCell;
+    }
+
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+    // ************************************************************************************************************************
+
+    var obj = {};
+
+    function isArray(array) {
+        return (obj.toString.call(array) === "[object Array]");
+    }
+
+    function createElement(tag) {
+        return document.createElement(tag);
+    }
+
+    function createTextNode(tag) {
+        return document.createTextNode(tag);
+    }
+
+    function boundsMatch(a, b) {
+        // if both are equal, the match is anyone's value
+        if (a === b)
+            return a;
+
+        // if any of the values is smaller than 2, it can be spanned to the largest value. so, return the largest value
+        if (a < 2 || b < 2 || a == b)
+            return Math.max(a, b);
+
+        // if both values are greater than 2, the match can only occours if the larger value is a multiple of the smaller one
+        var min = Math.min(a, b);
+        var max = Math.max(a, b);
+
+        if (max % min == 0)
+            return max;
+        else
+            return false;
+    }
+
+    function extend(dst, _) {
+        for (var i = 1; i < arguments.length; i++) {
+            var src = arguments[i];
+
+            for (var key in src)
+                dst[key] = src[key];
+        }
+
+        return dst;
+    }
+
+    function derive(Class, Base, methods) {
+        var proto = Class.prototype;
+
+        if (Base)
+            proto = Class.prototype = new Base();
+
+        if (methods) {
+            for (var key in methods)
+                proto[key] = methods[key];
+        }
+
+        if (Base && proto.hasOwnProperty("_initialize")) {
+            var baseInit = Base.prototype._initialize;
+            var classInit = proto._initialize;
+
+            proto._initialize = function (_) {
+                baseInit.apply(this, arguments);
+                classInit.apply(this, arguments);
+            };
+        }
+    }
+
+    var escapeMatch = /[<>&\n]/gm;
+
+    var escapeCodes = {
+        "<": "&lt;",
+        ">": "&gt;",
+        "&": "&amp;",
+        "\n": "<br />"
+    };
+
+    function escapeText(text) {
+        return text.replace(escapeMatch, function (m) {
+            return escapeCodes[m];
+        });
+    }
+
+
+})(jQuery);
+
+
+
+
+

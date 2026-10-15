@@ -1,0 +1,152 @@
+﻿.areausuario-login-arrow {
+  position: absolute;
+  display: none;
+  bottom: -1px;
+  right: 11px;
+  z-index: 1;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 10px solid #428bca;
+}
+.areausuario-login {
+  display: none;
+  border-radius: 2px;
+  box-shadow: 0 3px 1px rgba(0, 0, 0, 0.05);
+  border: 1px solid #428bca;
+  min-width: 275px;
+  box-shadow: 2px 2px 12px 1px rgba(0, 0, 0, 0.5);
+}
+.areausuario-login-target {
+  position: absolute;
+  right: -5px;
+}
+@media (min-width: 370px) {
+  .areausuario-login {
+    width: 350px;
+  }
+}
+.areausuario-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  right: 0;
+  background-color: rgba(199, 199, 199, 0.58);
+  text-align: center;
+  z-index: 9999;
+  overflow: auto;
+}
+.areausuario-overlay:before {
+  content: "";
+  display: inline-block;
+  height: 100%;
+  vertical-align: middle;
+}
+.areausuario-overlay-center {
+  position: static;
+  display: inline-block;
+  text-align: left;
+  vertical-align: middle;
+  border: 5px solid rgba(0, 0, 0, 0.3);
+}
+.areausuario-login .login-header {
+  position: relative;
+  text-align: center;
+  border-bottom: 1px solid #CCCCCC;
+  padding: 10px 0;
+  background: #428bca;
+  color: white;
+}
+.areausuario-login .close {
+  position: absolute;
+  float: left;
+  top: 0;
+  right: 0;
+  margin: 4px 7px;
+}
+.areausuario-login .login-body {
+  background: white;
+  padding: 15px 0;
+}
+.areausuario-login .separador {
+  padding: 5px;
+}
+.areausuario-login .formulario {
+  padding: 5px 10px;
+}
+.areausuario-login .redes {
+  padding-top: 20px;
+  border-top: 1px solid #cccccc;
+  margin-top: 10px;
+}
+.areausuario-login .cadastro {
+  float: right;
+}
+.areausuario-login .login {
+  width: 100%;
+  font-size: 15px;
+}
+.areausuario-login .redes-titulo {
+  color: #969494;
+  text-align: center;
+  margin-bottom: 10px;
+}
+.areausuario-login .icons {
+  text-align: center;
+}
+.areausuario-login .icon-rede {
+  width: 40px;
+}
+.areausuario-login .opcao-login {
+  list-style: none;
+  border-bottom: 1px solid #ccc;
+  padding: 0;
+  margin-bottom: 10px;
+  padding-left: 15px;
+}
+.areausuario-login .opcao-login li {
+  position: relative;
+  cursor: pointer;
+  display: inline-block;
+  padding: 5px 20px;
+  margin-left: 0px;
+  bottom: -1px;
+  border: 1px solid #ccc;
+  background-color: #efefef;
+  color: #555;
+}
+.areausuario-login .opcao-login li.active {
+  background: white;
+  color: #0d5594;
+  border-top: 2px solid #357ebd;
+  border-left: 1px solid #ccc;
+  border-right: 1px solid #ccc;
+  border-bottom: 0;
+  bottom: -2px;
+}
+.areausuario-login .opcao-login li:hover {
+  background-color: white;
+}
+.areausuario-login .error .message {
+  color: #c40a0a;
+  font-size: 12px;
+}
+.areausuario-hide-scroll {
+  overflow: hidden !important;
+}
+.areausuario-login [name='Email'],
+.areausuario-login [name='Usuario'] {
+  text-transform: lowercase;
+}
+.areausuario-login ::-webkit-input-placeholder {
+  text-transform: initial;
+}
+.areausuario-login :-moz-placeholder {
+  text-transform: initial;
+}
+.areausuario-login ::-moz-placeholder {
+  text-transform: initial;
+}
+.areausuario-login :-ms-input-placeholder {
+  text-transform: initial;
+}

@@ -1,0 +1,181 @@
+﻿.tituloTabela {
+  text-align: center;
+}
+.tituloColuna {
+  text-align: center;
+}
+.tabela-sidra td,
+.tabela-sidra th {
+  padding: 5px;
+}
+.linhaAfastado1 {
+  padding-left: 20px !important;
+}
+.linhaAfastado2 {
+  padding-left: 40px !important;
+}
+.linhaAfastado3 {
+  padding-left: 60px !important;
+}
+.linhaAfastado4 {
+  padding-left: 80px !important;
+}
+.linhaAfastado5 {
+  padding-left: 100px !important;
+}
+.linhaAfastadoEditor1 {
+  padding-left: 8px !important;
+}
+.linhaAfastadoEditor2 {
+  padding-left: 16px !important;
+}
+.linhaAfastadoEditor3 {
+  padding-left: 24px !important;
+}
+.linhaAfastadoEditor4 {
+  padding-left: 32px !important;
+}
+.linhaAfastadoEditor5 {
+  padding-left: 40px !important;
+}
+.tabela-dado {
+  text-align: right;
+}
+@media print {
+  table {
+    border-collapse: collapse;
+  }
+  .tabela-sidra {
+    font-size: 10px;
+    page-break-inside: auto;
+  }
+  .tabela-sidra td,
+  .tabela-sidra th {
+    padding: 0;
+  }
+  table,
+  th,
+  td {
+    border: 1px solid black;
+  }
+  .tabela-sidra tr {
+    page-break-inside: avoid;
+  }
+  .tabela-sidra th {
+    page-break-inside: avoid;
+  }
+  .panel-body {
+    padding: 0;
+  }
+  .panel-default {
+    border: 0;
+  }
+  /* usado na impressão de listas simples */
+  .tabela-lista td,
+  .tabela-lista th {
+    vertical-align: top;
+    padding: 2px;
+  }
+  /* usados na página de visão de tabelas */
+  .visao .titulo {
+    text-align: center;
+  }
+  .visao tr > th,
+  .visao tr > td {
+    vertical-align: middle;
+  }
+  .visao thead > tr > th {
+    text-align: center;
+  }
+  .visao tfoot > tr > th {
+    text-align: left;
+  }
+  .visao tbody > tr > th {
+    text-align: left;
+  }
+  .visao tbody > tr > td {
+    text-align: right;
+  }
+}
+@media screen {
+  .tabela-sidra {
+    width: 100%;
+    border: 0;
+  }
+  .linha-normal {
+    font-weight: normal;
+  }
+  .tabela-sidra thead {
+    background-color: #e9e9e9;
+  }
+  .tabela-sidra-linha-impar {
+    background-color: #e9e9e9;
+  }
+  .tabela-sidra thead th {
+    border: 1px solid #b3b3b3;
+  }
+  .tabela-sidra tbody th,
+  .tabela-sidra tfoot th {
+    border: 1px solid #b3b3b3;
+  }
+  .tabela-sidra tbody td {
+    white-space: nowrap;
+  }
+  .tabela-sidra tbody td,
+  .tabela-sidra tfoot td {
+    border-bottom: 1px solid #b3b3b3;
+    border-left: 0;
+    border-right: 1px dashed #b3b3b3;
+    border-top: 0;
+  }
+  .tabela-sidra tbody tr td:last-child .tabela-sidra tfoot tr td:last-child {
+    background-color: white;
+  }
+  .tabela-sidra tbody tr:nth-child(even),
+  .tabela-sidra tfoot tr:nth-child(even) {
+    border-right: 1px solid #b3b3b3;
+  }
+  .tabela-sidra tbody th {
+    background-color: #e9e9e9;
+  }
+  .tabela-sidra tbody tr:last-child {
+    border-bottom: 2px solid #b3b3b3;
+  }
+  .tabela-sidra tfoot tr:nth-child(even) {
+    background-color: white;
+  }
+  .tabela-sidra-borda-dado {
+    border-right: 1px solid #b3b3b3 !important;
+  }
+  .tituloColuna {
+    text-align: center;
+  }
+  .tabela-dado-celula {
+    border-left: 1px dashed #b3b3b3;
+  }
+}
+.tabela-sidra.reduzida {
+  table-layout: auto;
+}
+.tabela-sidra.reduzida th {
+  max-width: 80px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Reduz o tamanho de algumas fontes para visualização vertical no celular */
+@media screen and (max-width: 440px) {
+  .panel-heading {
+    padding: 6px;
+  }
+  .panel-heading h3 {
+    font-size: 14px;
+  }
+  table.quadro {
+    font-size: 10px;
+    margin: 0px;
+  }
+  table.quadro * {
+    padding: 2px;
+  }
+}

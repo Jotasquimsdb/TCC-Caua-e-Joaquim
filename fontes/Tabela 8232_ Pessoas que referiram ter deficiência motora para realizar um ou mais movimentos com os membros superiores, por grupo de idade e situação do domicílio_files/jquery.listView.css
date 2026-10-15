@@ -1,0 +1,42 @@
+.listview {
+    overflow: hidden;
+}
+
+    .listview .lv-wrapper {
+        position: relative;
+        z-index: 10;
+        overflow: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .listview table {
+        table-layout: fixed;
+        border-collapse: collapse;
+    }
+
+    .listview .lv-container {
+        position: relative;
+        min-width: 100%;
+    }
+
+    .listview .lv-header {
+        /* */
+    }
+
+    .listview .lv-data {
+        display: inline-block;
+    }
+
+    .listview .lv-block {
+        position: absolute;
+        /* use translateZ to try forcing the browser to create a rendering layer for each row */
+        -moz-transform: translateZ(0);
+        -ms-transform: translateZ(0);
+        -o-transform: translateZ(0);
+        -webkit-transform: translateZ(0);
+        transform: translateZ(0);
+    }
+
+    .listview .lv-row {
+        white-space: nowrap;
+    }

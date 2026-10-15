@@ -1,0 +1,169 @@
+﻿function start_tour_tabela_beginning() {
+    // Instance the tour
+    var tour = new Tour({
+        steps: [{
+            element: ".question-sign-left",
+            title: "Dúvidas",
+            content: "Para qualquer dúvida, pressione o ícone (?) para explicarmos cada funcionalidade",
+            backdrop: false
+        }]
+    });
+
+    // Initialize the tour
+    tour.init();
+
+    // Start the tour
+    tour.start();
+}
+
+function start_tour_tabela(init) {
+
+    divs_array = $('div').filter(function () { return ((this.id.match(/erros-app/) || this.id.match(/panel/) || this.id.match(/show-tabelas-respostas/)) && !this.id.match(/collapse/) && !this.id.match(/toggle/) && !this.id.match(/panelGroup/) && !this.id.match(/wrapper/) && !this.id.match(/cartograma/)) });
+    steps_array = [];
+    for (i = 0 ; i < divs_array.size() ; i++) {
+        steps_array[i] = divs_array[i].id;
+    }
+    steps = []
+    tour_size = 0
+    for (i = 0, first = true, first_category = false; i < divs_array.size() ; i++) {
+        first_category = false;
+        if (steps_array[i].match(/erros-app/)){
+            tag = "Erros";
+            content_tour = "Aqui você visualiza os erros da seleção atual de variáveis, categorias, territórios e períodos de tempo.";
+            title_tour = "Erros de seleção";
+        }
+        if (steps_array[i].match(/layout/)) {
+            tag = "Layout";
+            content_tour = "Aqui você organiza os dados do seu quadro, selecionando como colunas, linhas e cabeçalhos ficarão dispostos.";
+            title_tour = "Escolha de layout";
+        }
+        else if (steps_array[i].match(/panel-V/)) {
+            tag = "Variável";
+            content_tour = "Aqui você seleciona as variáveis que gostaria de visualizar no seu quadro.";
+            title_tour = "Seleção de variáveis";
+        }
+        else if (steps_array[i].match(/show-tabelas-respostas/)) {
+            tag = "Quadros";
+            content_tour = "Aqui você encontra os quadros que foram salvos e disponibilizados como públicos. São as seleções já prontas por outros usuários.";
+            title_tour = "Quadros Públicos";
+        }
+        else if (steps_array[i].match(/panel-P/)) {
+            tag = "Período";
+            content_tour = "Aqui você seleciona os períodos que gostaria de visualizar no seu quadro.";
+            title_tour = "Seleção de Períodos";
+        }
+        else if (steps_array[i].match(/panel-T/)) {
+            tag = "Território";
+            content_tour = "Aqui você seleciona as unidades territoriais que gostaria de visualizar no seu quadro.";
+            title_tour = "Seleção de Territórios";
+        }
+        else if (steps_array[i].match(/panel-C/)) {
+            tag = "Categoria";
+            if (first) {
+                first_category = true;
+                first = false;
+
+            }
+            content_tour = "Aqui você seleciona as categorias de classificações que gostaria de visualizar no seu quadro.";
+            title_tour = "Seleção de Categorias";
+           
+        }
+        if (tag != "Categoria" || (tag == "Categoria" && first_category == true)) {
+        
+            steps[tour_size] = {
+                element: "#" + steps_array[i],
+                title: title_tour,
+                content: content_tour,
+                backdrop: false
+            }
+           tour_size += 1
+            if (tag == "Categoria") {
+                var $somattion = $("button").has("span.sidraicon-summation")[0]
+                steps[tour_size] = {
+                    element: $somattion,
+                    title: "Seleção de Categorias",
+                    content: "Em alguns quadros, é possível marcar categorias que deseja somar, selecionando o botão de somatório.",
+                    backdrop: false
+                }
+                tour_size += 1;
+            }
+            if (tag == "Território") {
+                steps[tour_size] = {
+                    element: ".modo-territorio",
+                    title: "Seleção de Territórios",
+                    content: "Antes de selecionar os territórios, escolha entre Visões territoriais (layout fixo) e Níveis territoriais (seleção livre).",
+                    backdrop: false
+
+                }
+                tour_size += 1;
+            }
+            if (tag == "Layout") {
+                steps[tour_size] = {
+                    element: "#" + steps_array[i],
+                    title: title_tour,
+                    content: "Basta arrastar horizontalmente e verticalmente os retângulos para reposicioná-los. O número de quadros obtidos é igual à quantidade definida para o cabeçalho.",
+                    backdrop: false
+
+                }
+                tour_size += 1;
+            }
+        }
+    }
+
+
+    
+    steps[tour_size] = {
+        element: "#botao-downloads",
+        title: "Download",
+        content: "Aqui você pode fazer download dos dados selecionados. Você pode escolher entre fazer o download imediato ou receber um aviso por e-mail de quando o arquivo terminou de ser gerado (opção a posteriori). ",
+        backdrop: false
+
+    }
+
+    steps[tour_size+4] = {
+        element: "#botaoAvancado",
+        title: "Avançado",
+        content: "Aqui você pode visualizar todos os identificadores do quadro, além de gerar resultados com quantidades maiores de valores e recebê-los via email, no formato zip, entre outras opções.",
+        backdrop: false
+
+    }
+    
+    steps[tour_size+2] = {
+        element: ".gerar-link",
+        title: "Geração de links",
+        content: "Aqui é possível obter 4 opções de links, para: a parametrização da API, as marcações, o resultado em tela e o download de arquivo em diversos formatos.",
+        backdrop: false
+
+    }
+
+    steps[tour_size + 3] = {
+        element: "#salvar-quadro",
+        title: "Salvar Quadros",
+        content: "Aqui você pode salvar quadros. A seleção que você fez pode ser salva para visualizar depois. É possível, inclusive, disponibilizar o quadro salvo para uso público, de forma que outros usuários possam acessar.",
+        backdrop: false
+
+    }
+
+    steps[tour_size + 1] = {
+        element: "#botaoOk",
+        title: "Visualizar",
+        content: "Aqui você pode visualizar o quadro que será gerado de acodo com as seleções feitas acima.",
+        backdrop: false
+
+    }
+    
+    
+    
+    // Instance the tour
+    var tour = new Tour({
+        steps: steps,
+        template: "<div class='popover tour'> <div class='arrow'></div><h4 class='popover-title'></h4> <div class='popover-content'></div> <div class='popover-navigation'> <button class='btn btn-default' style='font-size:11px'  data-role='prev'>« Anterior</button> </span> <button class='btn btn-default' data-role='next' style='font-size:11px'>Próximo »</button> <button class='btn btn-info' style='font-size:11px' data-role='end'>Fim</button> </div> </div>",
+        storage: false
+    });
+
+    // Initialize the tour
+    tour.init();
+
+    // Start the tour
+    tour.start();
+}

@@ -1,0 +1,73 @@
+﻿$(".facebook-share").on("click", function () {
+    shareFacebook($(this).attr("id"));
+})
+
+$(".twitter-share").on("click", function () {
+    shareTwitter($(this).attr("id"));
+})
+
+function shareTwitter(id) {
+    $element = $("#" + id);
+    var url = "";
+    $.post("/Ajax/JSon/ObterHashConsulta/1", { params: encodeURI($element.attr("urlTabela")) + "/resultado" })
+    .done(function (hash) {
+        url = "https://twitter.com/share?url=" + $.sidra.origin() + ('/comunica/') + hash + "&hashtags=sidra"
+        var win = window.open(url, '_blank');
+    })
+    .fail(function (e) {
+    });
+    return false;
+}
+
+function shareFacebook(id) {
+    $element = $("#" + id);
+    FB.ui({
+        method: 'share',
+        display: 'popup',
+        hashtag: "#sidra",
+        quote: " Sistema IBGE de Recuperação Automática – SIDRA",
+        href: encodeURI($.sidra.origin() + $element.attr("redirect"))
+    }, function (response) {
+        console.log(response);
+    });
+}
+
+$(document).ready(function () {
+
+    return;
+
+    window.fbAsyncInit = function () {
+        FB.init({
+            appId: '1964026907160903',
+            autoLogAppEvents: true,
+            xfbml: true,
+            version: 'v2.10'
+        });
+        FB.AppEvents.logPageView();
+    };
+
+    (function (d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0];
+        if (d.getElementById(id)) { return; }
+        js = d.createElement(s); js.id = id;
+        js.async = true;
+        js.src = "//connect.facebook.net/en_US/sdk.js";
+        fjs.parentNode.insertBefore(js, fjs);
+    }(document, 'script', 'facebook-jssdk'));
+ 
+    window.twttr = (function(d, s, id) {
+        var js, fjs = d.getElementsByTagName(s)[0],
+        t = window.twttr || {};
+        if (d.getElementById(id)) return t;
+        js = d.createElement(s);
+        js.id = id;
+        js.async = true;
+        js.src = "https://platform.twitter.com/widgets.js";
+        fjs.parentNode.insertBefore(js, fjs);
+        t._e = [];
+        t.ready = function(f) {
+            t._e.push(f);
+        };
+        return t;
+    }(document, "script", "twitter-wjs"));
+});

@@ -1,0 +1,967 @@
+// Plugin que centraliza as funcionalidades de listas de itens, com opcoes de filtros e bla bla bla
+"use strict";
+
+(function ($, $undefined) {
+
+    var PLUGIN_FIELD = 'pluginListView';
+    var watchdogTimeout = 800;
+    var blockPoolSize = 10;
+    var array = [];
+
+    function ListView(element, options) {
+        this.initialize(element, options);
+    }
+
+    function clamp(n, min, max) {
+        return (n < min ? min : n > max ? max : n);
+    }
+
+    function nop() {
+        //
+    }
+
+    function functionOrNop(f) {
+        return ($.isFunction(f) ? f : nop);
+    }
+
+    function arrayOrEmpty(a) {
+        if (!a || $.isArray(a))
+            return (a || []);
+        else {
+            console.log("Parameter is not an array: ", a);
+            return [];
+        }
+    }
+
+    function empty(element) {
+        while (element.hasChildNodes())
+            element.removeChild(element.firstChild);
+        return element;
+    }
+
+    function defaultRenderer() {
+        this.mode = "list";
+        //
+        this.render = function (container, item, index) {
+            $(container).append(item ? item.toString() : "");
+        };
+        this.update = function (container, item, index) {
+            this.render(empty(container), item, index);
+            return true;
+        };
+    }
+
+    var listPatterns = {
+        "light": "lv-pattern-light",
+        "dark": "lv-pattern-dark"
+    };
+
+    var modeMap = {
+        "list": "list",
+        "table": "table"
+    };
+
+    $.extend(ListView.prototype, {
+        // default configuration
+        defaults: {
+            list: null,
+            height: 320,
+            flexible: false, // when true, the list height not fixed, and the defined height is treated as the maximum height
+            wrap: false, // when true, in initialization, if the innerHeight of the list is smaller than element height, height will be set to innerHeight
+            blockSize: 20,
+            itemHeight: null,
+            expand: true,
+            //
+            renderer: null,
+            mode: "list", // "list", "table",
+            columns: 1     // column count, when in table mode
+        },
+        log: function (message) {
+            console.log("[ListView] " + message);
+        },
+        // initialize plugin
+        initialize: function (element, options) {
+            this.initialized = false;
+            this.options = options = this.processOptions(options || {});
+            //
+            this.header = null;
+            this.topMargin = 0;
+            this._setRenderer(this.options.renderer);
+            //
+            this.isEmpty = true;
+            this.list = arrayOrEmpty(options.list);
+            this.blocks = {}; // visible blocks indexed by start index
+            this.blockPool = [];
+            this.first = -1;
+            this.last = -1;
+            //
+            this.scroll = 0;
+            this.width = 0;
+            this.isTouch = false;
+            this.updateTime = 0;
+            this.updateQueued = null;
+            //
+            this.prepareElement(element);
+            // update list and check for wrapping
+            this.updateList(false);
+            this.processListWrap();
+            this.setEvents();
+            //
+            this.initialized = true;
+        },
+        // process user options
+        processOptions: function (options) {
+            var defaults = this.defaults;
+            options = $.extend({}, defaults, options);
+            //
+            this.blockSize = (parseInt(options.blockSize) || defaults.blockSize);
+            this.height = (parseFloat(options.height) || defaults.height);
+            this.flexible = (options.flexible === true);
+            this.rowHeight = (parseFloat(options.rowHeight) || 0);
+            this.mode = "list";
+            //
+            return options;
+        },
+        //
+        processListWrap: function () {
+            if (this.list.length && this.options.wrap && this.innerHeight < this.height)
+                this._wrap();
+        },
+        // prepare element for list to be built
+        prepareElement: function (element) {
+            this.element = $(element).empty()
+                 .addClass('listview')[0];
+
+            this.wrapper = $("<div class='lv-wrapper'></div>")
+                .css(this.flexible ? "max-height" : "height", this.height)
+                .appendTo(this.element)[0];
+
+            this.container = $("<div class='lv-container'></div>")
+                .appendTo(this.wrapper)[0];
+        },
+        // set events for plugin
+        setEvents: function () {
+            // assign scroll event
+            var element = $(this.wrapper);
+            element.on("scroll", this, this.evtOnScroll);
+            // if the device can receive touch events, assign them too
+            if (typeof TouchEvent !== "undefined") {
+                element
+                    .on("touchstart", this, this.evtTouchStart)
+                    .on("touchend touchcancel", this, this.evtTouchEnd)
+                    .on("touchmove", this, this.evtTouchMove);
+            }
+            // set a timeout watchdog, to deal with some problems with touch scrolling momentum not triggering onscroll
+            var that = this;
+            setInterval(function () {
+                if (element.is(":visible")) {
+                    var scroll = element.scrollTop();
+                    if (that.scroll !== scroll)
+                        that._update();
+                }
+            }, watchdogTimeout);
+        },
+        compatible: function (renderer) {
+            return (this.mode !== renderer.mode ? false : this[this.mode + "_compatible"](renderer));
+        },
+        // set renderer, switching to default renderer if it's not a function
+        setRenderer: function (renderer) {
+            this.renderer = renderer;
+            // if rowHeight option is not defined, reset rowHeight to reinfer it on update
+            if (!this.options.rowHeight)
+                this.rowHeight = 0;
+            // set mode and call renderer initialization
+            this.mode = this.renderer.mode;
+            this[this.mode + "_initialize"]();
+        },
+        isVisible: function () {
+            return $(this.element).is(":visible");
+        },
+        // if the list is hidden, this procedure make it visible by turning visible all it's hidden parents
+        // when element is not in DOM tree, append it to body and return a flag string "floating"
+        showListHierarchy: function () {
+            // get a list of all elements from the list to body
+            var parents = $(this.element)
+                .parentsUntil("body")
+                .toArray();
+            // if no parent is defined, element is outside DOM tree. append it do body to allow properties to be calculated
+            if (!parents.length) {
+                document.body.appendChild(this.element);
+                return "floating";
+            }
+            // put this element as first in list
+            parents.unshift(this.element);
+            // else, from top to bottom, check if a parent is visible and, if not, save it's style state and show it
+            for (var i = parents.length; i--;) {
+                var el = $(parents.pop());
+                if (!el.is(":visible")) {
+                    parents.unshift({
+                        element: el,
+                        style: el.attr("style") || ""
+                    });
+                    el.show();
+                }
+            }
+            // return the list of elements changed
+            return parents;
+        },
+        // restore the display state of elements which styles was changed
+        hideListHierarchy: function (parents) {
+            if (parents == "floating")
+                $(this.element).detach();
+            else {
+                while (parents.length) {
+                    var el = parents.pop();
+                    el.element.attr("style", el.style);
+                }
+            }
+        },
+        //
+        createHeader: function () {
+            if (this.renderer.header) {
+                var fixed = this.renderer.fixedHeader;
+                var header = $("<div class='lv-container'></div>")[0];
+
+                var target = $(fixed ? this.element : this.container)
+                target.prepend(header);
+
+                this[this.mode + "_createHeader"](header);
+
+                this.header = header;
+                this.topMargin = (fixed ? 0 : header.offsetHeight);
+
+                this.expandHeader();
+            }
+            else {
+                this.topMargin = 0;
+                this.header = null;
+            }
+        },
+        expandHeader: function () {
+            this.header.firstChild.style.minWidth = (this.options.expand ? "100%" : "");
+        },
+        // read default row height from first row (assuming there is at least one item in list)
+        inferRowHeight: function () {
+            return this.rowHeight = this[this.mode + "_inferRowHeight"]();
+        },
+        //
+        fillBlock: function (block) {
+            var start = block.index;
+            var end = Math.min(start + this.blockSize, this.list.length);
+            for (var i = start; i < end; i++)
+                this.fillRow(i, block.rows[i - start]);
+            // if the block is partial, hide unused rows
+            block.count = end - start;
+            for (var i = block.count; i < this.blockSize; i++)
+                $(block.rows[i]).hide();
+            // update block width
+            this[this.mode + "_wrapBlock"](block);
+        },
+        //
+        updateBlock: function (block) {
+            if (!this.renderer.update)
+                return false;
+            //
+            var start = block.index;
+            var end = Math.min(start + this.blockSize, this.list.length);
+            //
+            var updated = false;
+            for (var i = start; i < end; i++)
+                updated |= this.updateRow(i, block.rows[i - start]);
+            //
+            return updated;
+        },
+        // create a new row and fill it with the element specified by index
+        fillRow: function (index, row) {
+            // prepare row for filling, if method is available
+            var item = this.list[index];
+            if (this.renderer.prepare)
+                this.renderer.prepare(row, item, index);
+            // fill row contents and return
+            this[this.mode + "_fillRow"](row, item, index);
+            return row;
+        },
+        // refills an entry contents (if renderer returns null, nothings is done. this allows user to avoid unecessary redraws)
+        updateRow: function (index, row) {
+            // render contents
+            var item = this.list[index];
+            return this[this.mode + "_updateRow"](row, item, index);
+        },
+        // place entry in correct position, based on it's index
+        placeBlock: function (block) {
+            var y = this.topMargin + block.index * this.rowHeight;
+            block.wrapper.style.top = y + "px";
+            return block;
+        },
+        // get a new row entry, with pooling
+        newBlock: function (index) {
+            var block = this.blockPool.pop();
+            // if there is no block to recycle, create a new one
+            if (block)
+                block.wrapper.style.display = "";
+            else {
+                block = {
+                    index: 0,
+                    wrapper: null,
+                    width: 0,
+                    rowHeight: 0,
+                    count: this.blockSize,
+                    rows: []
+                };
+                this[this.mode + "_newBlock"](block);
+            }
+            // update block index and update row heights, if changed
+            block.index = index;
+            if (block.rowHeight !== this.rowHeight) {
+                var height = block.rowHeight = this.rowHeight;
+                for (var i = this.blockSize; i--;)
+                    $(block.rows[i]).height(height);
+            }
+            //
+            return block;
+        },
+        // release a row entry, pushing it into pool
+        freeBlock: function (block) {
+            // if pool length is outside limits, just remove the block (avoid a large pool with many unused entries, for example after a resize)
+            if (this.blockPool.length >= blockPoolSize)
+                $(block.wrapper).remove();
+            else {
+                // else, recycle block
+                var style = block.wrapper.style;
+                style.display = "none";
+                style.minWidth = "";
+                style.top = 0;
+                // remove content from rows and, if there were unused rows, restore their visibility
+                this[this.mode + "_freeBlock"](block);
+                for (var i = block.count; i < this.blockSize; i++)
+                    block.rows[i].style.display = "";
+                //
+                this.blockPool.push(block);
+            }
+        },
+        // get index of first row to be rendered
+        getStartBlock: function () {
+            var index = ~~((this.scroll - this.topMargin) / this.rowHeight / this.blockSize) - 2;
+            return Math.max(0, index);
+        },
+        // get index of last row to be rendered
+        getEndBlock: function () {
+            var index = ~~((this.scroll - this.topMargin + this.height) / this.rowHeight / this.blockSize) + 2;
+            var lastBlock = ~~((this.list.length - 1) / this.blockSize);
+            return Math.min(index, lastBlock);
+        },
+        beforeUpdate: function () {
+            this.viewState = (this.isVisible() ? null : this.showListHierarchy());
+        },
+        afterUpdate: function () {
+            if (this.viewState) {
+                this.hideListHierarchy(this.viewState);
+                this.viewState = null;
+            }
+        },
+        // updates the list html
+        updateList: function (redraw) {
+            // if list is empty, clear just clear list view and return
+            var list = this.list;
+            if (!list || !list.length)
+                return this._clear();
+            // prepare for update
+            this.beforeUpdate();
+            // if it's the first render of this list, update dimensions
+            if (this.isEmpty) {
+                // if rowHeight is not defined, infer it from list elements before
+                if (!this.rowHeight)
+                    this.inferRowHeight();
+                // create header of list
+                this.createHeader();
+                this.updateDimensions();
+            }
+            // get element scroll position
+            this.scroll = $(this.wrapper).scrollTop();
+            this.isEmpty = false;
+            // calculate start and end indexes for visible blocks
+            var first = this.blockSize * this.getStartBlock();
+            var last = this.blockSize * this.getEndBlock();
+            // if it's not a redraw and indexes didn't change, return now
+            if (!redraw && first == this.first && last == this.last) {
+                this.afterUpdate();
+                return $(this.element);
+            }
+            else {
+                this.first = first;
+                this.last = last;
+            }
+            // get all blocks inside limits and remove blocks outside
+            var blocks = this.blocks;
+            var newBlocks = {};
+            for (var index in blocks) {
+                var block = blocks[index];
+                if (index >= first && index <= last)
+                    newBlocks[index] = block;
+                else
+                    this.freeBlock(block);
+            }
+            var changed = [];
+            this.blocks = newBlocks;
+            // iterate each element from first to last indexes
+            for (var index = first; index <= last; index += this.blockSize) {
+                var block = newBlocks[index];
+                if (block) {
+                    // if it's a redraw, update entry and, if updated, test max width
+                    if (redraw && this.updateBlock(block))
+                        changed.push(block);
+                }
+                else {
+                    // if element was not visible, fill a new row and place in position
+                    block = newBlocks[index] = this.newBlock(index);
+                    this.fillBlock(block);
+                    this.placeBlock(block);
+                    // update width
+                    changed.push(block);
+                }
+            }
+            // check if maximum width changed (after iteration, because offsetWidth could prematurelly trigger html reflows)
+            var widthData = this.widthChanged(changed);
+            if (widthData)
+                this[this.mode + "_updateRowsDimensions"](widthData);
+            //
+            this.afterUpdate();
+            return $(this.element);
+        },
+        widthChanged: function (changedBlocks) {
+            return (!changedBlocks.length ? null : this[this.mode + "_widthChanged"](changedBlocks));
+        },
+        // update dimensions of rows container
+        updateDimensions: function () {
+            this.innerHeight = this.topMargin + this.list.length * this.rowHeight;
+            $(this.container).height(this.innerHeight);
+
+            var wrapper = this.wrapper;
+            this.marginRight = wrapper.offsetWidth - wrapper.clientWidth;
+
+            if (this.header && this.renderer.fixedHeader)
+                this.header.style.paddingRight = this.marginRight + "px";
+        },
+        // clear all visible elements
+        clearVisibles: function () {
+            // if there are items, recycle them
+            var blocks = this.blocks;
+            for (var id in blocks)
+                this.freeBlock(blocks[id]);
+
+            this.blocks = {};
+            this.first = -1;
+            this.last = -1;
+        },
+        // ************************************************************************************
+        // PUBLIC METHODS *********************************************************************
+        // ************************************************************************************
+        // get or set list
+        _list: function (list) {
+            if (!arguments.length)
+                return this.list;
+            else {
+                this._clear();
+                this.list = list;
+                this._update();
+                return $(this.element);
+            }
+        },
+        _reset: function () {
+            this._clear();
+            while (this.blockPool.length)
+                $(this.blockPool.pop().wrapper).remove();
+            return $(this.element);
+        },
+        // check if list is empty
+        _isEmpty: function () {
+            return this.isEmpty;
+        },
+        // get or set renderer
+        _renderer: function (renderer) {
+            // if renderer is not defined, it's a getter
+            return (!arguments.length ? this.renderer : this._setRenderer(renderer));
+        },
+        // set if list contents should have a minimum width to fill the container
+        _expand: function (expand) {
+            this.options.expand = expand;
+            if (this.header)
+                this.expandHeader();
+            return this._update();
+        },
+        _setRenderer: function (renderer) {
+            var renderer = (renderer || new defaultRenderer());
+            if (!this.initialized) {
+                this.setRenderer(renderer);
+                return $(this.element);
+            }
+            // save scroll prosition relative in list index coordinates
+            var yRel = (this.scroll - this.topMargin) / this.rowHeight;
+            // if current mode is compatible with new one, just clear visible graphics; else, reset list
+            var mode = (renderer.mode || "list");
+            if (this.compatible(renderer))
+                this.clearVisibles();
+            else
+                this._reset();
+            //
+            this.setRenderer(renderer);
+            //
+            if (this.list.length) {
+                // if rowHeight is fixed, just update list
+                if (this.rowHeight)
+                    this._update();
+                else {
+                    // else, infer new rows height and recalculate scroll
+                    this.beforeUpdate();
+                    var rowHeight = this.inferRowHeight();
+                    var scroll = this.topMargin + yRel * rowHeight;
+                    this.updateDimensions();
+                    this._scroll(scroll); // OBS: "updateList" could have updated row height and dimensions, but we needed those info to calculate new scroll
+                    this.afterUpdate();
+                }
+            }
+            return $(this.element);
+        },
+        // redraw list elements
+        _redraw: function () {
+            return this.updateList(true);
+        },
+        // update list visibility
+        // update(immediate) - if "immediate" is unset or false, update is delayed for option "updateDelay" miliseconds
+        _update: function () {
+            var time = +(new Date());
+            if (time != this.updateTime) {
+                // execute update now
+                this.updateTime = time;
+                this.updateList(false);
+            }
+            // element chaining
+            return $(this.element);
+        },
+        // scroll list to item
+        // scrollTo(index)
+        _scrollTo: function (index) {
+            // item scroll position, with limit applied
+            var y = index * this.rowHeight;
+            y = Math.min(y, this.innerHeight - this.height);
+            // scroll element and update list
+            $(this.wrapper).scrollTop(y);
+            this._update();
+        },
+        // scroll list to position
+        _scroll: function (position) {
+            // item scroll position, with limit applied
+            var y = Math.min(position, this.innerHeight - this.height);
+            // scroll element and update list
+            $(this.wrapper).scrollTop(y);
+            this._update();
+        },
+        // get or set list height
+        _height: function (height) {
+            if (!arguments.length)
+                return this.height;
+            else {
+                $(this.wrapper).css(this.flexible ? "max-height" : "height", height);
+                this.height = height;
+                this._update();
+            }
+        },
+        // get inner height of list
+        _innerHeight: function () {
+            return this.innerHeight;
+        },
+        // set element height equal to inner height
+        _wrap: function () {
+            if (this.innerHeight) {
+                // include scrollbar space
+                var scrollMargin = this.wrapper.offsetHeight - this.wrapper.clientHeight; // give 1px room
+                this._height(this.innerHeight + scrollMargin);
+            }
+            return $(this.element);
+        },
+        // clear list
+        _clear: function () {
+            // if list is already empty, return now
+            if (this.isEmpty)
+                return $(this.element);
+            // remove header
+            if (this.header)
+                $(this.header).remove();
+            // clear visible items
+            $(this.element).scrollTop(0);
+            this.scroll = 0;
+            this.isEmpty = true;
+            this.clearVisibles();
+            // restore properties to default value
+            this.blocks = {};
+            this.list = [];
+            this.width = 0;
+            this.rowHeight = (this.options.rowHeight || 0);
+            //
+            this[this.mode + "_clear"]();
+            //
+            this.first = -1;
+            this.last = -1;
+            $(this.container).css({
+                height: "",
+                width: ""
+            });
+            // element chaining
+            return $(this.element);
+        },
+        //
+        // ************************************************************************************
+        // EVENT HANDLERS *********************************************************************
+        // ************************************************************************************
+        evtOnScroll: function (e) {
+            var that = e.data;
+            //if (!that.isTouch)
+            that._update();
+        },
+        evtTouchMove: function (e) {
+            var that = e.data;
+            that.isTouch = true;
+            that._update();
+        },
+        evtTouchStart: function (e) {
+            var that = e.data;
+            that.isTouch = true;
+        },
+        evtTouchEnd: function (e) {
+            var that = e.data;
+            that.isTouch = false;
+        }
+
+    });
+
+
+    // ************************************************************************************
+    // LIST MODE METHODS ******************************************************************
+    // ************************************************************************************
+
+    $.extend(ListView.prototype, {
+        list_inferRowHeight: function () {
+            // create a temporary row element
+            var tmpRow = $("<div class='lv-row'><div class='lv-data'></div></div>").appendTo(this.container);
+            var tmpData = tmpRow.children();
+            // fill row contents and read it's height
+            this.fillRow(0, tmpRow[0]);
+            var rowHeight = tmpRow.height();
+            // remove temporary row and return rowHeight
+            tmpRow.remove();
+            return rowHeight;
+        },
+        list_createHeader: function (container) {
+            var header = $("<div class='lv-header'><div class='lv-row'><div class='lv-data'></div></div></div>").appendTo(container);
+            this.renderer.header(header.find(".lv-row")[0], this.list);
+            this.width = header.width();
+        },
+        list_wrapBlock: function (block) {
+            block.width = block.wrapper.offsetWidth;
+            block.wrapper.style.minWidth = (this.options.expand ? "100%" : "");
+        },
+        list_fillRow: function (row, item, index) {
+            this.renderer.render(row.firstChild, item, index);
+        },
+        list_updateRow: function (row, item, index) {
+            return this.renderer.update(row.firstChild, item, index);
+        },
+        list_newBlock: function (block) {
+            var wrapper = document.createElement("div");
+            wrapper.className = "lv-block";
+            //
+            for (var i = this.blockSize; i--;) {
+                var row = document.createElement("div");
+                row.className = "lv-row";
+
+                var cell = document.createElement("div");
+                cell.className = "lv-data";
+
+                row.appendChild(cell);
+                wrapper.appendChild(row);
+
+                block.rows.push(row);
+            }
+            //
+            this.container.appendChild(wrapper);
+            block.wrapper = wrapper;
+        },
+        list_freeBlock: function (block) {
+            for (var i = block.count; i--;)
+                empty(block.rows[i].firstChild);
+        },
+        list_clear: function () {
+            //
+        },
+        list_widthChanged: function (changedBlocks) {
+            var maxWidth = this.width;
+            for (var i = changedBlocks.length; i--;)
+                maxWidth = Math.max(maxWidth, changedBlocks[i].width);
+            return (maxWidth <= this.width ? null : maxWidth);
+        },
+        list_updateRowsDimensions: function (data) {
+            this.width = data;
+            this.container.style.width = data + "px";
+        },
+        list_compatible: function (renderer) {
+            return true;
+        },
+        list_initialize: function () {
+            //
+        }
+    });
+
+
+
+
+    // ************************************************************************************
+    // TABLE MODE METHODS *****************************************************************
+    // ************************************************************************************
+
+    $.extend(ListView.prototype, {
+        table_inferRowHeight: function () {
+            // create a temporary row element
+            var table = $("<table><tr class='lv-row'></tr></table>").appendTo(this.container);
+            var tmpRow = table.find(".lv-row");
+            for (var i = this.columns; i--;)
+                tmpRow.append("<td><div class='lv-data'></div></td>");
+            // fill row contents and read it's height
+            this.fillRow(0, tmpRow[0]);
+            var rowHeight = tmpRow.height();
+            // create array for column widths
+            this.colWidths = [];
+            for (var i = this.columns; i--;)
+                this.colWidths.push(0);
+            // remove temporary row and return rowHeight
+            table.remove();
+            return rowHeight;
+        },
+        table_createHeader: function (container) {
+            var header = $("<table class='lv-header'><thead><tr></tr></thead></table>").appendTo(container);
+            var row = header.find("tr")[0];
+
+            for (var i = 0; i < this.columns; i++) {
+                var cell = document.createElement("th");
+                var data = document.createElement("div");
+                data.className = "lv-data";
+
+                this.renderer.header(data, this.list, i);
+
+                cell.appendChild(data);
+                row.appendChild(cell);
+
+                this.colWidths[i] = data.offsetWidth;
+            }
+
+            this.table_applyWidths(this.colWidths, row);
+        },
+        table_wrapBlock: function (block) {
+            var tbody = block.wrapper.firstChild;
+            var row = tbody.firstChild;
+            // get block columns widths (just need to check first row cells, because html tables already dealt with column widths)
+            block.width = [];
+            var widthChanged = false;
+            for (var i = 0; i < this.columns; i++) {
+                var width = row.childNodes[i].offsetWidth;
+                block.width.push(width);
+                if (width > this.colWidths[i])
+                    widthChanged = true;
+            }
+            // set the fixed width for each column only if global widths didn't change (in this case, they will be updated later)
+            if (!widthChanged)
+                this.table_applyWidths(this.colWidths, row);
+            // if table should be expanded, expand content wrapper and table header, when available
+            var expandedWidth = (this.options.expand ? "100%" : "");
+            block.wrapper.style.minWidth = expandedWidth;
+        },
+        table_fillRow: function (row, item, index) {
+            for (var col = this.columns; col--;)
+                this.renderer.render(row.childNodes[col].firstChild, item, index, col);
+        },
+        table_updateRow: function (row, item, index) {
+            var updated = false;
+            for (var col = this.columns; col--;)
+                updated |= this.renderer.update(row.childNodes[col].firstChild, item, index, col);
+            return updated;
+        },
+        table_newBlock: function (block) {
+            var table, tbody, row;
+            table = document.createElement("table");
+            table.className = "lv-block";
+            //
+            var tbody = document.createElement("tbody");
+            for (var i = this.blockSize; i--;) {
+                row = document.createElement("tr");
+                row.className = "lv-row";
+                //
+                for (var j = this.columns; j--;) {
+                    var data = document.createElement("div");
+                    data.className = "lv-data";
+                    var cell = document.createElement("td");
+                    cell.appendChild(data);
+                    row.appendChild(cell);
+                }
+                //
+                tbody.appendChild(row);
+                block.rows.push(row);
+            }
+            table.appendChild(tbody);
+            this.container.appendChild(table);
+            //
+            block.wrapper = table;
+        },
+        table_freeBlock: function (block) {
+            // empty cells data
+            for (var i = block.count; i--;) {
+                empty(block.rows[i].firstChild.firstChild);
+            }
+
+            // remove widths from first row cells
+            var children = block.rows[0].childNodes;
+            for (var i = this.columns; i--;) {
+                var style = children[i].style;
+                style.minWidth = "";
+                style.width = "";
+            }
+        },
+        table_clear: function () {
+            for (var i = this.columns; i--;)
+                this.colWidths[i] = 0;
+        },
+        table_widthChanged: function (changedBlocks) {
+            var maxWidth = this.width;
+            var changed = false;
+            var widths = this.colWidths.slice(0);
+            for (var i = changedBlocks.length; i--;) {
+                for (var j = this.columns; j--;) {
+                    var w = changedBlocks[i].width[j];
+                    if (w > widths[j]) {
+                        widths[j] = w;
+                        changed = true;
+                    }
+                }
+            }
+            return (changed ? widths : null);
+        },
+        table_applyWidths: function (widths, row) {
+            var wrap = this.wrapColumns;
+
+            for (var j = this.columns; j--;) {
+                var style = row.childNodes[j].style;
+                var width = widths[j] + "px";
+                style.minWidth = width;
+
+                if (wrap[j])
+                    style.width = width;
+            }
+
+        },
+        table_updateRowsDimensions: function (data) {
+            for (var index in this.blocks) {
+                var block = this.blocks[index];
+                this.table_applyWidths(data, block.rows[0]);
+            }
+            if (this.header) {
+                var header = $(this.header).find("tr")[0];
+                this.table_applyWidths(data, header);
+            }
+            //
+            this.colWidths = data;
+        },
+        table_compatible: function (renderer) {
+            return (renderer.columns == this.columns);
+        },
+        table_initialize: function () {
+            this.columns = this.renderer.columns;
+
+            var wrapMap = {};
+            var wrapped = this.renderer.wrapColumns;
+
+            if (wrapped && wrapped.length)
+                for (var i = wrapped.length; i--;)
+                    wrapMap[wrapped[i]] = true;
+
+            this.wrapColumns = wrapMap;
+        }
+    });
+
+    //
+
+    ListView.prototype._benchmark = function (callback) {
+        var count = 0;
+        var list = this.list;
+        this._reset();
+        this._list(list);
+        this.clearVisibles();
+        //
+        var start = +(new Date());
+        var block = null;
+        var that = this;
+        function step() {
+            if (block) {
+                that.freeBlock(block);
+                block = null;
+                setTimeout(step, 0);
+                return;
+            }
+            if (count >= list.length) {
+                var end = +(new Date());
+                //
+                that._reset();
+                that._list(list);
+                //
+                callback(end - start);
+            }
+            else {
+                block = that.newBlock(count);
+                that.fillBlock(block);
+                that.placeBlock(block);
+                //
+                count += that.blockSize;
+                setTimeout(step, 0);
+            }
+        }
+        setTimeout(step, 0);
+    };
+
+
+    // ************************************************************************************
+    // JQUERY INTERFACES ******************************************************************
+    // ************************************************************************************
+
+    // anonymous constructor
+    $.listView = function (options) {
+        return $("<div>").listView(options);
+    }
+
+    // selector constructor
+    $.fn.listView = function (arg1, _) {
+        // check if the element has the plugin
+        var element = $(this);
+        var plugin = element.data(PLUGIN_FIELD);
+        if (!plugin) {
+            // plugin isn't created. create it
+            plugin = new ListView(element, arg1);
+            element.data(PLUGIN_FIELD, plugin);
+            return element;
+        }
+        else {
+            // else, try to execute a plugin method
+            if (typeof arg1 !== 'string')
+                throw 'Method name not specified';
+            //
+            var method = plugin['_' + arg1];
+            if (!method)
+                throw 'Method not found: ' + arg1;
+            //
+            var args = array.slice.call(arguments, 1);
+            return method.apply(plugin, args);
+        }
+    }
+
+})(jQuery);
+
+
+
+
+
